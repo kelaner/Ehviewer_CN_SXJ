@@ -13,6 +13,7 @@
         android:layout_width="48dp" android:layout_height="48dp" android:padding="12dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/download_label_menu"
+        app:tint="?android:attr/textColorSecondary"
         app:srcCompat="@drawable/v_dots_vertical_secondary_dark_x24" />
     <androidx.appcompat.widget.AppCompatImageView android:id="@+id/drag_handler"
         android:layout_width="48dp" android:layout_height="48dp" android:padding="12dp"

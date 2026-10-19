@@ -236,9 +236,12 @@ public class LoadImageView extends FixedAspectImageView implements Unikery<Image
     }
 
     public void load(String key, String url, DataContainer dataContainer, boolean useNetwork,boolean hardware) {
-        if (url == null || key == null) {
+        if (key == null && url == null && dataContainer == null) {
+            unload();
             return;
         }
+        // A downloaded cover remains usable offline even when its remote URL is missing.
+        useNetwork = useNetwork && !android.text.TextUtils.isEmpty(url);
 
         mLoadFromDrawable = false;
         mFailed = false;

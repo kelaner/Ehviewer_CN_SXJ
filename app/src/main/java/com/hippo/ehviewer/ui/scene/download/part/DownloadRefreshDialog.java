@@ -58,7 +58,7 @@ public final class DownloadRefreshDialog {
     private final Set<Call> calls = Collections.newSetFromMap(new ConcurrentHashMap<Call, Boolean>());
     private volatile boolean stopped;
     private boolean finished;
-    private boolean committed;
+    private volatile boolean committed;
     private int scheduled;
     private int active;
     private int completed;
@@ -180,8 +180,12 @@ public final class DownloadRefreshDialog {
                 committed = true;
             }
             main.post(() -> {
-                if (stopped) return;
+                // A cancellation may follow a completed commit but precede this UI delivery.
                 EhApplication.getGalleryDetailCache(context).put(detail.gid, detail);
+                if (stopped) {
+                    changed.run();
+                    return;
+                }
                 finishItem(info, null);
             });
         } catch (Exception error) {
@@ -216,7 +220,10 @@ public final class DownloadRefreshDialog {
                 DownloadCover.replace(context, info, temporary);
                 committed = true;
             }
-            main.post(() -> finishItem(info, null));
+            main.post(() -> {
+                if (stopped) changed.run();
+                else finishItem(info, null);
+            });
         } catch (Exception error) {
             main.post(() -> finishItem(info, error));
         } finally {
@@ -255,10 +262,10 @@ public final class DownloadRefreshDialog {
     }
 
     public void stop() {
-        synchronized (this) {
-            if (stopped) return;
-            stopped = true;
-        }
+        // Called on the main thread: never wait for a worker holding the commit monitor
+        // across SAF I/O. A commit already in progress is allowed to finish atomically.
+        if (stopped) return;
+        stopped = true;
         // A commit may have completed before its queued UI callback was delivered.
         if (committed && !finished) changed.run();
         updateScreenOn();

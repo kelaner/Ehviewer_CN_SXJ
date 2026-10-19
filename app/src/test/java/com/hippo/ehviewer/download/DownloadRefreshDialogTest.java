@@ -51,7 +51,9 @@ import static org.robolectric.Shadows.shadowOf;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, manifest = Config.NONE, application = Application.class,
         shadows = {DownloadRefreshDialogTest.ApplicationClient.class,
-                DownloadRefreshDialogTest.CapturedClient.class})
+                DownloadRefreshDialogTest.CapturedClient.class,
+                DownloadRefreshDialogTest.SlowCoverStorage.class,
+                DownloadRefreshDialogTest.LocalDirectory.class})
 @LooperMode(LooperMode.Mode.PAUSED)
 public class DownloadRefreshDialogTest {
     private ActivityController<Activity> controller;
@@ -156,6 +158,30 @@ public class DownloadRefreshDialogTest {
                 dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getText().toString());
     }
 
+    @Test public void cancellationDoesNotWaitForSlowCoverCommit() throws Exception {
+        java.io.File directory = new java.io.File(activity.getCacheDir(), "slow-cover-gallery");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        java.nio.file.Files.write(new java.io.File(directory, ".thumb").toPath(), new byte[]{1, 2, 3});
+        LocalDirectory.directory = com.hippo.unifile.UniFile.fromFile(directory);
+        SlowCoverStorage.entered = new java.util.concurrent.CountDownLatch(1);
+        SlowCoverStorage.release = new java.util.concurrent.CountDownLatch(1);
+        operation = new DownloadRefreshDialog(activity, items(1), DownloadRefreshDialog.Mode.LOCAL_COVER,
+                changes::incrementAndGet);
+        operation.start();
+        dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+        try {
+            assertTrue("The storage commit must be in progress",
+                    SlowCoverStorage.entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            long start = System.nanoTime();
+            operation.stop();
+            long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue("Cancel must not wait for storage (ms=" + elapsedMs + ")", elapsedMs < 1000);
+            assertFalse(dialog.isShowing());
+        } finally {
+            SlowCoverStorage.release.countDown();
+        }
+    }
+
     @Test public void systemCancelAlsoReleasesScreenAndStopsQueuedWork() {
         start(items(6));
         CheckBox keepScreenOn = checkBox(dialog.getWindow().getDecorView());
@@ -213,6 +239,29 @@ public class DownloadRefreshDialogTest {
             }
         }
         return null;
+    }
+
+    /** Simulate a storage provider that has not completed its atomic cover commit. */
+    @Implements(DownloadCover.class)
+    public static class SlowCoverStorage {
+        static java.util.concurrent.CountDownLatch entered;
+        static java.util.concurrent.CountDownLatch release;
+        @Implementation public static void validate(Context context, java.io.File file) { }
+        @Implementation public static void replace(Context context, DownloadInfo info, java.io.File file) {
+            entered.countDown();
+            try {
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException cancelled) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    @Implements(com.hippo.ehviewer.spider.SpiderDen.class)
+    public static class LocalDirectory {
+        static com.hippo.unifile.UniFile directory;
+        @Implementation public static com.hippo.unifile.UniFile getGalleryDownloadDir(
+                com.hippo.ehviewer.client.data.GalleryInfo info) { return directory; }
     }
 
     /** Return an isolated client without starting the real application's services. */

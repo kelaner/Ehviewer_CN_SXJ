@@ -518,7 +518,12 @@ public class DownloadsScene extends ToolbarScene
         mGuideHelper.guide();
         mPaginationController.updatePaginationIndicator();
         mMetadataLoader = new com.hippo.ehviewer.download.DownloadMetadataLoader(context, () -> {
-            if (mAdapter != null && isAdded()) onLocalTagsChanged();
+            if (mAdapter == null || !isAdded()) return;
+            // Original-tag backfill does not change covers or an unfiltered download list.
+            // Rebinding every visible item here repeatedly cancels in-flight cover reads.
+            if ((!"custom".equals(mGrouping) && !"@all".equals(mGroupSelection))
+                    || (searchKey != null && !searchKey.isEmpty())) updateForLabel();
+            if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
         });
         mMetadataLoader.start(new ArrayList<>(mDownloadManager.getAllDownloadInfoList()));
         return view;
@@ -1053,7 +1058,9 @@ public class DownloadsScene extends ToolbarScene
         mRefreshDialog = new com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog(
                 activity, new ArrayList<>(items),
                 com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.METADATA,
-                this::onLocalTagsChanged);
+                () -> {
+                    if (mAdapter != null && isAdded()) onLocalTagsChanged();
+                });
         mRefreshDialog.start();
     }
 

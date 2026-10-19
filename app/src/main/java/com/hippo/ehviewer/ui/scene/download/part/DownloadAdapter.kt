@@ -25,7 +25,10 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.util.LruCache
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -43,7 +46,7 @@ import com.hippo.ehviewer.Analytics.recordException
 import com.hippo.ehviewer.EhDB
 import com.hippo.ehviewer.R
 import com.hippo.ehviewer.Settings
-import com.hippo.ehviewer.client.EhCacheKeyFactory
+import com.hippo.ehviewer.download.DownloadCover
 import com.hippo.ehviewer.client.EhUtils.getCategory
 import com.hippo.ehviewer.client.EhUtils.getCategoryColor
 import com.hippo.ehviewer.client.EhUtils.getSuitableTitle
@@ -52,7 +55,6 @@ import com.hippo.ehviewer.download.DownloadManager
 import com.hippo.ehviewer.download.DownloadService
 import com.hippo.ehviewer.gallery.A7ZipArchive
 import com.hippo.ehviewer.gallery.A7ZipArchive.A7ZipArchiveEntry
-import com.hippo.ehviewer.gallery.Pipe
 import com.hippo.ehviewer.spider.SpiderDen
 import com.hippo.ehviewer.spider.SpiderInfo
 import com.hippo.ehviewer.ui.scene.TransitionNameFactory
@@ -71,8 +73,15 @@ import com.hippo.unifile.UniFile
 import com.hippo.unifile.UniRandomAccessFile
 import com.hippo.util.NaturalComparator
 import com.hippo.widget.LoadImageView
+import java.io.File
+import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.Locale
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import kotlin.math.max
 import kotlin.math.min
 import androidx.core.graphics.drawable.toDrawable
 
@@ -90,7 +99,13 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
 
     private var movedItem: View? = null
 
-    private val thumbnailCache: MutableMap<String?, Bitmap?> = HashMap<String?, Bitmap?>()
+    private val thumbnailCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+    }
+    // Accessed only on the main thread; views must not be retained by queued work.
+    private val pendingThumbnails = mutableMapOf<String, MutableList<WeakReference<LoadImageView>>>()
+    private val thumbnailHandler = Handler(Looper.getMainLooper())
+    @Volatile private var thumbnailsDetached = false
 
     interface DownloadAdapterCallback {
         val indexPage: Int
@@ -183,7 +198,7 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
 
             if (holder.itemViewType == 1) {
                 // A recycled cover must not supply the next item's measured aspect ratio.
-                holder.thumb.setImageDrawable(null)
+                holder.thumb.load(Color.TRANSPARENT.toDrawable())
             }
             (holder.thumb as? TileThumb)?.setThumbSize(info.thumbWidth, info.thumbHeight)
 
@@ -199,7 +214,6 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
             }
             // Handle thumbnail loading for imported archives
             if (importedArchive) {
-                holder.thumb.setTag(R.id.thumb, null)
                 // For imported archives, extract first image as thumbnail
                 loadArchiveThumbnail(holder.thumb, Uri.parse(info.archiveUri))
             } else if (localAlbum) {
@@ -208,7 +222,7 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
                 holder.thumb.setTag(R.id.thumb, null)
                 // Normal thumbnail loading for regular downloads
                 holder.thumb.load(
-                    EhCacheKeyFactory.getThumbKey(info.gid), info.thumb,
+                    DownloadCover.getCacheKey(info.gid), info.thumb,
                     ThumbDataContainer(info), true, false
                 )
             }
@@ -261,6 +275,25 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
         } catch (e: Exception) {
             recordException(e)
         }
+    }
+
+    override fun onViewRecycled(holder: DownloadHolder) {
+        holder.thumb.setTag(R.id.thumb, null)
+        holder.thumb.unload()
+        super.onViewRecycled(holder)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        thumbnailsDetached = false
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        thumbnailsDetached = true
+        thumbnailHandler.removeCallbacksAndMessages(null)
+        pendingThumbnails.clear()
+        thumbnailCache.evictAll()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     override fun getItemCount(): Int {
@@ -478,37 +511,82 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
     }
 
     private fun loadLocalAlbumThumbnail(thumb: LoadImageView, info: DownloadInfo) {
-        val cacheKey = DownloadAlbumImporter.URI_PREFIX + info.gid
+        loadLocalThumbnail(thumb, DownloadAlbumImporter.URI_PREFIX + info.gid, false) {
+            decodeLocalAlbumThumb(info)
+        }
+    }
+
+    private fun loadLocalThumbnail(
+        thumb: LoadImageView,
+        cacheKey: String,
+        archive: Boolean,
+        decode: () -> Bitmap?
+    ) {
+        if (thumbnailsDetached) return
         thumb.setTag(R.id.thumb, cacheKey)
-        val cachedThumbnail = thumbnailCache[cacheKey]
-        if (cachedThumbnail != null && !cachedThumbnail.isRecycled) {
-            val resources = mScene.getResources2()
-            if (resources != null) {
-                thumb.load(BitmapDrawable(resources, cachedThumbnail))
-            } else {
-                thumb.setImageBitmap(cachedThumbnail)
-            }
+        val cachedThumbnail = thumbnailCache.get(cacheKey)
+        if (cachedThumbnail != null) {
+            thumb.load(BitmapDrawable(thumb.resources, cachedThumbnail))
             return
         }
 
-        thumb.load(Color.TRANSPARENT.toDrawable())
-        Thread(Runnable {
-            val thumbnail = decodeLocalAlbumThumb(info)
-            mScene.runOnUiThread(Runnable {
-                if (cacheKey != thumb.getTag(R.id.thumb)) {
-                    return@Runnable
+        if (archive) {
+            thumb.load(R.drawable.v_archive_hh_primary_x48)
+        } else {
+            thumb.load(Color.TRANSPARENT.toDrawable())
+        }
+        pendingThumbnails[cacheKey]?.let { waiting ->
+            waiting.removeAll { it.get() == null }
+            if (waiting.none { it.get() === thumb }) {
+                waiting.add(WeakReference(thumb))
+            }
+            return
+        }
+        pendingThumbnails[cacheKey] = mutableListOf(WeakReference(thumb))
+        try {
+            thumbnailExecutor.execute {
+                if (thumbnailsDetached) return@execute
+                val thumbnail = try {
+                    decode()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to load local thumbnail: $cacheKey", e)
+                    null
                 }
-                if (thumbnail != null && !thumbnail.isRecycled) {
-                    thumbnailCache[cacheKey] = thumbnail
-                    val resources = mScene.getResources2()
-                    if (resources != null) {
-                        thumb.load(BitmapDrawable(resources, thumbnail))
-                    } else {
-                        thumb.setImageBitmap(thumbnail)
+                thumbnailHandler.post {
+                    if (thumbnailsDetached) return@post
+                    val waiting = pendingThumbnails.remove(cacheKey) ?: return@post
+                    if (thumbnail != null) {
+                        thumbnailCache.put(cacheKey, thumbnail)
+                        for (reference in waiting) {
+                            val view = reference.get() ?: continue
+                            if (cacheKey == view.getTag(R.id.thumb)) {
+                                view.load(BitmapDrawable(view.resources, thumbnail))
+                            }
+                        }
                     }
                 }
-            })
-        }).start()
+            }
+        } catch (e: RejectedExecutionException) {
+            pendingThumbnails.remove(cacheKey)
+            // Retry still-bound views after capacity becomes available, without blocking the UI
+            // or requiring the user to scroll an otherwise permanently blank cover away and back.
+            val reference = WeakReference(thumb)
+            thumbnailHandler.postDelayed({
+                val view = reference.get()
+                if (!thumbnailsDetached && view != null && cacheKey == view.getTag(R.id.thumb)) {
+                    loadLocalThumbnail(view, cacheKey, archive, decode)
+                }
+            }, 150L)
+        }
+    }
+
+    private fun thumbnailSampleSize(width: Int, height: Int): Int {
+        var sampleSize = 1
+        val maxDimension = max(width, height)
+        while (maxDimension / sampleSize > 300) {
+            sampleSize *= 2
+        }
+        return sampleSize
     }
 
     private fun decodeLocalAlbumThumb(info: DownloadInfo): Bitmap? {
@@ -528,17 +606,8 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
                 val options = BitmapFactory.Options()
                 options.inJustDecodeBounds = true
                 BitmapFactory.decodeStream(boundsStream, null, options)
-                val thumbnailSize = 150
-                var sampleSize = 1
-                if (options.outHeight > thumbnailSize || options.outWidth > thumbnailSize) {
-                    val halfHeight = options.outHeight / 2
-                    val halfWidth = options.outWidth / 2
-                    while ((halfHeight / sampleSize) >= thumbnailSize && (halfWidth / sampleSize) >= thumbnailSize) {
-                        sampleSize *= 2
-                    }
-                }
                 options.inJustDecodeBounds = false
-                options.inSampleSize = sampleSize
+                options.inSampleSize = thumbnailSampleSize(options.outWidth, options.outHeight)
                 options.inPreferredConfig = Bitmap.Config.RGB_565
                 thumbFile.openInputStream().use { decodeStream ->
                     return BitmapFactory.decodeStream(decodeStream, null, options)
@@ -551,50 +620,13 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
     }
 
     private fun loadArchiveThumbnail(thumb: LoadImageView, archiveUri: Uri) {
-        val uriString = archiveUri.toString()
-
-        // Check cache first
-        if (thumbnailCache.containsKey(uriString)) {
-            val cachedThumbnail = thumbnailCache.get(uriString)
-            if (cachedThumbnail != null && !cachedThumbnail.isRecycled()) {
-                thumb.setImageBitmap(cachedThumbnail)
-                return
-            } else {
-                // Remove invalid cached entry
-                thumbnailCache.remove(uriString)
-            }
+        loadLocalThumbnail(thumb, archiveUri.toString(), true) {
+            extractFirstImageFromArchive(archiveUri)
         }
-
-        // Set default icon immediately as fallback
-        thumb.setImageResource(R.drawable.v_archive_hh_primary_x48)
-
-        // Load thumbnail in background thread
-        Thread(Runnable {
-            try {
-                val thumbnail = extractFirstImageFromArchive(archiveUri)
-                mScene.runOnUiThread {
-                    if (thumbnail != null && !thumbnail.isRecycled) {
-                        // Cache the thumbnail
-                        thumbnailCache[uriString] = thumbnail
-                        thumb.setImageBitmap(thumbnail)
-                    } else {
-                        // If extraction fails, check if we have a previous cached thumbnail
-                        val fallbackThumbnail = thumbnailCache[uriString]
-                        if (fallbackThumbnail != null && !fallbackThumbnail.isRecycled) {
-                            thumb.setImageBitmap(fallbackThumbnail)
-                        }
-                        // Otherwise keep the default archive icon that was already set
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load archive thumbnail for " + uriString, e)
-                // Keep the default icon that was already set - no need to change anything
-            }
-        }).start()
     }
 
     private fun extractFirstImageFromArchive(archiveUri: Uri): Bitmap? {
-        val context = mScene.ehContext ?: return null
+        val context = mInflater.context.applicationContext
 
         var uraf: UniRandomAccessFile? = null
         var archive: A7ZipArchive? = null
@@ -676,63 +708,22 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
                     fileName.endsWith(".gif") || fileName.endsWith(".webp")
                 ) {
                     try {
-                        // Create a pipe to extract the image
-                        var pipe = Pipe(8 * 1024) // Increased buffer size
-
-                        // Extract in another thread with timeout
-                        val finalPipe = pipe
-                        var extractThread = Thread(Runnable {
-                            try {
-                                entry.extract(finalPipe.outputStream)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to extract image: $fileName", e)
+                        val temporaryFile = File.createTempFile("archive-thumb-", ".tmp", context.cacheDir)
+                        try {
+                            // Extract once, on this worker, before either decode pass.
+                            temporaryFile.outputStream().use { entry.extract(it) }
+                            val options = BitmapFactory.Options()
+                            options.inJustDecodeBounds = true
+                            BitmapFactory.decodeFile(temporaryFile.absolutePath, options)
+                            options.inJustDecodeBounds = false
+                            options.inSampleSize = thumbnailSampleSize(options.outWidth, options.outHeight)
+                            options.inPreferredConfig = Bitmap.Config.RGB_565
+                            val bitmap = BitmapFactory.decodeFile(temporaryFile.absolutePath, options)
+                            if (bitmap != null) {
+                                return bitmap
                             }
-                        })
-                        extractThread.start()
-
-                        // Decode the image with size limits
-                        val options = BitmapFactory.Options()
-                        options.inJustDecodeBounds = true
-                        BitmapFactory.decodeStream(pipe.inputStream, null, options)
-
-                        // Calculate sample size for thumbnail (smaller target size for better performance)
-                        val thumbnailSize = 150
-                        var sampleSize = 1
-                        if (options.outHeight > thumbnailSize || options.outWidth > thumbnailSize) {
-                            val halfHeight = options.outHeight / 2
-                            val halfWidth = options.outWidth / 2
-                            while ((halfHeight / sampleSize) >= thumbnailSize && (halfWidth / sampleSize) >= thumbnailSize) {
-                                sampleSize *= 2
-                            }
-                        }
-
-                        // Recreate pipe for actual decoding
-                        pipe = Pipe(8 * 1024)
-                        val finalPipe1 = pipe
-                        extractThread = Thread(Runnable {
-                            try {
-                                entry.extract(finalPipe1.outputStream)
-                            } catch (e: Exception) {
-                                Log.w(
-                                    TAG,
-                                    "Failed to extract image on second attempt: $fileName",
-                                    e
-                                )
-                            }
-                        })
-                        extractThread.start()
-
-                        // Decode with sample size
-                        options.inJustDecodeBounds = false
-                        options.inSampleSize = sampleSize
-                        options.inPreferredConfig = Bitmap.Config.RGB_565 // Use less memory
-                        val bitmap = BitmapFactory.decodeStream(pipe.inputStream, null, options)
-
-                        extractThread.join(3000) // Wait max 3 seconds (reduced from 5)
-
-                        if (bitmap != null && !bitmap.isRecycled) {
-                            Log.d(TAG, "Successfully extracted thumbnail from $fileName")
-                            return bitmap
+                        } finally {
+                            temporaryFile.delete()
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to extract thumbnail from $fileName", e)
@@ -868,6 +859,9 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
 
     companion object {
         private val TAG: String = DownloadAdapter::class.java.getSimpleName()
+        private val thumbnailExecutor = ThreadPoolExecutor(
+            2, 2, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(32)
+        ).apply { allowCoreThreadTimeOut(true) }
         @JvmField
         var DRAG_ENABLE: Boolean = false
     }

@@ -97,6 +97,42 @@ public class DownloadCoverTest {
         assertArrayEquals(Files.readAllBytes(refreshed.toPath()), cover());
     }
 
+    @Test public void backgroundSaveRepairsNonemptyInvalidCover() throws Exception {
+        File broken = new File(directory, ".thumb");
+        Files.write(broken.toPath(), "<html>expired</html>".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        File replacement = image("recovered.png", Color.GREEN);
+        DownloadCover.saveIfMissing(context, info, replacement);
+        assertArrayEquals(Files.readAllBytes(replacement.toPath()), cover());
+        DownloadCover.validate(context, broken);
+    }
+
+    @Test public void replacementSeparatesLateOldCacheWrites() throws Exception {
+        String oldKey = DownloadCover.getCacheKey(info.gid);
+        DownloadCover.replace(context, info, image("fresh.png", Color.BLUE));
+        String newKey = DownloadCover.getCacheKey(info.gid);
+        org.junit.Assert.assertNotEquals(oldKey, newKey);
+        Bitmap oldBitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        Image oldImage = Image.create(oldBitmap);
+        Conaco<Image> conaco = ImageCache.getConaco(context);
+        conaco.getBeerBelly().putToMemory(oldKey, oldImage);
+        org.junit.Assert.assertNull("A late old request must not populate the refreshed key",
+                conaco.getBeerBelly().getFromMemory(newKey));
+        conaco.getBeerBelly().clearMemory();
+    }
+
+    @Test public void cachedCoverLoadsWithoutRemoteUrl() {
+        Bitmap bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        bitmap.eraseColor(Color.BLUE);
+        Image cached = Image.create(bitmap);
+        Conaco<Image> conaco = ImageCache.getConaco(context);
+        conaco.getBeerBelly().putToMemory("offline-cover", cached);
+        com.hippo.widget.LoadImageView view = new com.hippo.widget.LoadImageView(context);
+        view.load("offline-cover", null, false);
+        org.junit.Assert.assertNotNull("A cached cover must not require a remote URL", view.getDrawable());
+        view.unload();
+        conaco.getBeerBelly().clearMemory();
+    }
+
     @Test public void failedMetadataCommitRestoresOldCover() throws Exception {
         DownloadCover.replace(context, info, image("original.png", Color.RED));
         byte[] expected = cover();
@@ -137,6 +173,8 @@ public class DownloadCoverTest {
         @Implementation public static Conaco<Image> getConaco(Context context) {
             if (cache == null) {
                 Conaco.Builder<Image> builder = new Conaco.Builder<>();
+                builder.hasMemoryCache = true;
+                builder.memoryCacheMaxSize = 1024 * 1024;
                 builder.hasDiskCache = true;
                 builder.diskCacheDir = new File(context.getCacheDir(), "cover-test-cache");
                 builder.diskCacheMaxSize = 1024 * 1024;

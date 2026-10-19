@@ -17,16 +17,36 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Validate a complete replacement before touching the current download cover. */
 public final class DownloadCover {
     private DownloadCover() { }
 
+    private static final ConcurrentHashMap<Long, Long> revisions = new ConcurrentHashMap<>();
+    private static final AtomicLong nextRevision = new AtomicLong();
+
+    /** Isolate late cache writes from requests that started before an explicit replacement. */
+    public static String getCacheKey(long gid) {
+        Long revision = revisions.get(gid);
+        String key = EhCacheKeyFactory.getThumbKey(gid);
+        return revision == null ? key : key + ":download:" + revision;
+    }
+
     /** A delayed thumbnail request must never overwrite a cover explicitly refreshed meanwhile. */
     public static synchronized void saveIfMissing(Context context, DownloadInfo info, File source) throws IOException {
         UniFile directory = SpiderDen.getGalleryDownloadDir(info);
         UniFile current = directory == null ? null : directory.findFile(".thumb");
-        if (current != null && current.length() > 0) return;
+        if (current != null && current.length() > 0) {
+            try {
+                // Preserve a newer usable cover, but allow recovery from a nonempty bad file.
+                validate(context, current);
+                return;
+            } catch (IOException invalidCover) {
+                // replace() stages and validates the new image before touching the old file.
+            }
+        }
         replace(context, info, source);
     }
 
@@ -59,8 +79,9 @@ public final class DownloadCover {
             }
             moved = true;
             try {
-                EhApplication.getConaco(context).getBeerBelly().remove(EhCacheKeyFactory.getThumbKey(info.gid));
+                EhApplication.getConaco(context).getBeerBelly().remove(getCacheKey(info.gid));
                 commit.run();
+                revisions.put(info.gid, nextRevision.incrementAndGet());
             } catch (RuntimeException | Error error) {
                 UniFile replacement = directory.findFile(".thumb");
                 if (replacement == null || !replacement.delete()
@@ -74,6 +95,26 @@ public final class DownloadCover {
             // After rename, staged points at .thumb, which may already be the restored original.
             if (!moved) staged.delete();
         }
+    }
+
+    private static void validate(Context context, UniFile file) throws IOException {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        try (InputStream input = file.openInputStream()) {
+            BitmapFactory.decodeStream(input, null, options);
+        }
+        if (options.outWidth <= 0 || options.outHeight <= 0)
+            throw new IOException(context.getString(R.string.download_refresh_invalid_image));
+        int sample = 1;
+        while (Math.max(options.outWidth, options.outHeight) / sample > 512) sample *= 2;
+        options.inSampleSize = sample;
+        options.inJustDecodeBounds = false;
+        Bitmap bitmap;
+        try (InputStream input = file.openInputStream()) {
+            bitmap = BitmapFactory.decodeStream(input, null, options);
+        }
+        if (bitmap == null) throw new IOException(context.getString(R.string.download_refresh_invalid_image));
+        bitmap.recycle();
     }
 
     public static void validate(Context context, File file) throws IOException {

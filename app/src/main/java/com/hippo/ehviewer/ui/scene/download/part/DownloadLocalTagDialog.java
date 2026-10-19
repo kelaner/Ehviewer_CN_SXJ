@@ -3,13 +3,11 @@ package com.hippo.ehviewer.ui.scene.download.part;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.BaseAdapter;
 import android.widget.Filter;
 import android.widget.Filterable;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,8 +26,6 @@ import java.util.Map;
 
 /** Local metadata editing never resolves translated text back into a raw identity. */
 public final class DownloadLocalTagDialog {
-    private static final String[] TYPES = {"artist", "character", "group"};
-
     private DownloadLocalTagDialog() { }
 
     public static void showAdd(Context context, List<DownloadInfo> selection, Runnable changed) {
@@ -45,50 +41,32 @@ public final class DownloadLocalTagDialog {
         TextView note = new TextView(context);
         note.setText(R.string.download_local_tags_finished_only);
         content.addView(note);
-        Spinner type = new Spinner(context);
-        type.setAdapter(new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item,
-                context.getResources().getStringArray(R.array.download_metadata_types)));
-        content.addView(type);
         AutoCompleteTextView input = new AutoCompleteTextView(context);
         input.setSingleLine(true);
         input.setThreshold(1);
-        input.setHint(R.string.download_local_tag_raw_hint);
+        input.setHint(R.string.download_local_tag_prefix_hint);
         content.addView(input, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
-        Suggestions suggestions = new Suggestions(context, type, knownTags(context, selection));
+        Suggestions suggestions = new Suggestions(context, knownTags(context, selection));
         input.setAdapter(suggestions);
         input.setOnItemClickListener((parent, view, position, id) -> {
             DownloadTags.Tag tag = suggestions.getItem(position);
-            input.setText(tag.raw, false);
+            input.setText(tag.namespace + ":" + tag.raw, false);
             input.setSelection(input.length());
-        });
-        type.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                input.dismissDropDown();
-                suggestions.getFilter().filter(input.getText());
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         AlertDialog dialog = new AlertDialog.Builder(context).setTitle(R.string.download_local_tags_add)
                 .setView(content).setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, null).create();
+        DownloadDialogIme.restoreOnDismiss(dialog, input);
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String text = input.getText().toString().trim();
-            String namespace = TYPES[type.getSelectedItemPosition()];
-            int colon = text.indexOf(':');
-            if (colon >= 0) {
-                DownloadTags.Tag named = new DownloadTags.Tag(text.substring(0, colon), text.substring(colon + 1));
-                if (!namespace.equals(named.namespace)) {
-                    input.setError(context.getString(R.string.download_local_tag_type_mismatch));
-                    return;
-                }
-                text = named.raw;
-            }
-            if (text.isEmpty()) {
-                input.setError(context.getString(R.string.label_text_is_empty));
+            DownloadTags.Tag tag = DownloadTags.parseLocalTag(text);
+            if (tag == null) {
+                input.setError(context.getString(text.isEmpty() ? R.string.label_text_is_empty
+                        : R.string.download_local_tag_invalid_prefix));
                 return;
             }
-            DownloadTags.addLocalTags(finished, namespace, text);
+            DownloadTags.addLocalTags(finished, tag.namespace, tag.raw);
             dialog.dismiss();
             changed.run();
         }));
@@ -122,8 +100,9 @@ public final class DownloadLocalTagDialog {
         if (database != null) for (com.hippo.ehviewer.client.data.Tag translated : database.getTagList()) {
             String identity = translated.english;
             int colon = identity.indexOf(':');
-            if (colon < 0) continue;
-            DownloadTags.Tag tag = new DownloadTags.Tag(identity.substring(0, colon), identity.substring(colon + 1));
+            DownloadTags.Tag tag = colon < 0 ? new DownloadTags.Tag("misc", identity)
+                    : DownloadTags.parseLocalTag(identity);
+            if (tag == null) continue;
             tags.put(tag.identity(), tag);
         }
         for (DownloadInfo info : selection) for (DownloadTags.Tag tag : DownloadTags.getTags(info.gid))
@@ -133,13 +112,10 @@ public final class DownloadLocalTagDialog {
 
     private static final class Suggestions extends BaseAdapter implements Filterable {
         private final Context context;
-        private final Spinner type;
         private final List<DownloadTags.Tag> all;
         private List<DownloadTags.Tag> visible = new ArrayList<>();
-        private volatile String namespace = TYPES[0];
-        Suggestions(Context context, Spinner type, List<DownloadTags.Tag> all) {
+        Suggestions(Context context, List<DownloadTags.Tag> all) {
             this.context = context;
-            this.type = type;
             this.all = all;
         }
         @Override public int getCount() { return visible.size(); }
@@ -155,14 +131,13 @@ public final class DownloadLocalTagDialog {
             return view;
         }
         @Override public Filter getFilter() {
-            namespace = TYPES[type.getSelectedItemPosition()];
-            final String selectedType = namespace;
             return new Filter() {
                 @Override protected FilterResults performFiltering(CharSequence constraint) {
                     String query = constraint == null ? "" : constraint.toString().trim().toLowerCase(Locale.ROOT);
+                    DownloadTags.Tag parsed = DownloadTags.parseLocalTag(query);
                     List<DownloadTags.Tag> matches = new ArrayList<>();
-                    if (!query.isEmpty()) for (DownloadTags.Tag tag : all) {
-                        if (selectedType.equals(tag.namespace) && tag.identity().contains(query)) {
+                    if (parsed != null) for (DownloadTags.Tag tag : all) {
+                        if (parsed.namespace.equals(tag.namespace) && tag.raw.toLowerCase(Locale.ROOT).contains(parsed.raw)) {
                             matches.add(tag);
                             if (matches.size() == 40) break;
                         }
@@ -174,12 +149,12 @@ public final class DownloadLocalTagDialog {
                 }
                 @SuppressWarnings("unchecked")
                 @Override protected void publishResults(CharSequence constraint, FilterResults results) {
-                    if (!selectedType.equals(namespace)) return;
                     visible = (List<DownloadTags.Tag>) results.values;
                     notifyDataSetChanged();
                 }
                 @Override public CharSequence convertResultToString(Object result) {
-                    return ((DownloadTags.Tag) result).raw;
+                    DownloadTags.Tag tag = (DownloadTags.Tag) result;
+                    return tag.namespace + ":" + tag.raw;
                 }
             };
         }

@@ -37,6 +37,7 @@ import com.hippo.ehviewer.client.data.GalleryInfo;
 import com.hippo.ehviewer.client.data.ListUrlBuilder;
 import com.hippo.ehviewer.dao.BlackList;
 import com.hippo.ehviewer.dao.BlackListDao;
+import com.hippo.ehviewer.dao.BookmarkInfo;
 import com.hippo.ehviewer.dao.DaoMaster;
 import com.hippo.ehviewer.dao.DaoSession;
 import com.hippo.ehviewer.dao.DownloadDirname;
@@ -56,6 +57,7 @@ import com.hippo.ehviewer.dao.QuickSearch;
 import com.hippo.ehviewer.dao.QuickSearchDao;
 import com.hippo.ehviewer.download.DownloadManager;
 import com.hippo.ehviewer.download.DownloadTags;
+import com.hippo.ehviewer.preference.SettingsBackup;
 import com.hippo.util.ExceptionUtils;
 import com.hippo.util.SqlUtils;
 import com.hippo.lib.yorozuya.IOUtils;
@@ -957,7 +959,10 @@ public class EhDB {
                     return false;
                 if (!copyDao(sDaoSession.getGalleryTagsDao(), exportSession.getGalleryTagsDao()))
                     return false;
+                if (!copyDao(sDaoSession.getBlackListDao(), exportSession.getBlackListDao()))
+                    return false;
                 DownloadTags.copy(sDaoSession.getDatabase(), exportSession.getDatabase());
+                SettingsBackup.exportSettings(context, exportSession.getDatabase());
             }
 
             // Copy export db to data dir
@@ -991,9 +996,8 @@ public class EhDB {
      * @return error string, null for no error
      */
     public static synchronized String importDB(Context context, File file, Handler handler) {
-        try {
-            SQLiteDatabase db = SQLiteDatabase.openDatabase(
-                    file.getPath(), null, SQLiteDatabase.NO_LOCALIZED_COLLATORS);
+        try (SQLiteDatabase db = SQLiteDatabase.openDatabase(
+                file.getPath(), null, SQLiteDatabase.NO_LOCALIZED_COLLATORS)) {
             int newVersion = DaoMaster.SCHEMA_VERSION;
             int oldVersion = db.getVersion();
             if (oldVersion < newVersion) {
@@ -1050,8 +1054,12 @@ public class EhDB {
                 putLocalFavorite(info);
             }
 
-            // Bookmarks
-            // TODO
+            // Keep existing bookmarks when merging a backup.
+            for (BookmarkInfo bookmark : session.getBookmarksBao().queryBuilder().list()) {
+                if (sDaoSession.getBookmarksBao().load(bookmark.gid) == null) {
+                    sDaoSession.getBookmarksBao().insert(bookmark);
+                }
+            }
 
             // Filter
             List<Filter> filterList = session.getFilterDao().queryBuilder().list();
@@ -1065,8 +1073,16 @@ public class EhDB {
             List<BlackList> blackList = session.getBlackListDao().queryBuilder().list();
             List<BlackList> currentBlackList = sDaoSession.getBlackListDao().queryBuilder().list();
             for (BlackList black : blackList) {
-                if (!currentBlackList.contains(black)) {
+                boolean exists = false;
+                for (BlackList current : currentBlackList) {
+                    if (ObjectUtils.equal(current.badgayname, black.badgayname)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists && black.badgayname != null) {
                     insertBlackList(black);
+                    currentBlackList.add(black);
                 }
             }
 
@@ -1078,6 +1094,7 @@ public class EhDB {
             }
 
             DownloadTags.copy(session.getDatabase(), sDaoSession.getDatabase());
+            SettingsBackup.importSettings(context, session.getDatabase());
             return null;
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);

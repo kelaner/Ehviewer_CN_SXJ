@@ -155,6 +155,8 @@ public class DownloadsScene extends ToolbarScene
     private String mGroupSelection;
     private boolean mThumbnailMode;
     private com.hippo.ehviewer.download.DownloadMetadataLoader mMetadataLoader;
+    private com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog mRefreshDialog;
+    private boolean mFileSizeScanRunning;
 
     public String getGrouping() { return mGrouping; }
     public String getGroupSelection() { return mGroupSelection; }
@@ -176,16 +178,21 @@ public class DownloadsScene extends ToolbarScene
     @Override
     public void selectCondition(int id) {
         mProjection.select(id);
-        updateForLabel();
         if (id == R.id.sort_by_file_size_asc || id == R.id.sort_by_file_size_desc) {
+            if (mDownloadManager == null || mFileSizeScanRunning) return;
+            mFileSizeScanRunning = true;
             List<DownloadInfo> snapshot = new ArrayList<>(mDownloadManager.getAllDownloadInfoList());
             com.hippo.util.IoThreadPoolExecutor.Companion.getInstance().execute(() -> {
-                DownloadListProjection.loadFileSizes(snapshot);
-                runOnUiThread(() -> {
-                    if (mAdapter != null) updateForLabel();
-                });
+                try {
+                    DownloadListProjection.loadFileSizes(snapshot);
+                } finally {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        mFileSizeScanRunning = false;
+                        if (mAdapter != null) updateForLabel();
+                    });
+                }
             });
-        }
+        } else updateForLabel();
     }
 
     private final DownloadArchiveImporter mArchiveImporter = new DownloadArchiveImporter(this);
@@ -685,6 +692,10 @@ public class DownloadsScene extends ToolbarScene
 
     @Override
     public void onDestroyView() {
+        if (mRefreshDialog != null) {
+            mRefreshDialog.stop();
+            mRefreshDialog = null;
+        }
         if (mMetadataLoader != null) {
             mMetadataLoader.stop();
             mMetadataLoader = null;
@@ -753,6 +764,22 @@ public class DownloadsScene extends ToolbarScene
                 }
                 return true;
             }
+            case R.id.action_refresh_download_tags:
+            case R.id.action_refresh_download_covers: {
+                if (mDownloadManager == null) return false;
+                if (mRefreshDialog != null) mRefreshDialog.stop();
+                mRefreshDialog = new com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog(
+                        activity, new ArrayList<>(mDownloadManager.getAllDownloadInfoList()),
+                        id == R.id.action_refresh_download_tags
+                                ? com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.TAGS
+                                : com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.COVERS,
+                        () -> {
+                            updateForLabel();
+                            if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
+                        });
+                mRefreshDialog.start();
+                return true;
+            }
             case R.id.action_reset_reading_progress: {
                 Context context = getEHContext();
                     if (context == null) {
@@ -792,6 +819,9 @@ public class DownloadsScene extends ToolbarScene
             case R.id.waiting:
             case R.id.downloading:
             case R.id.failed:
+            case R.id.sort_by_random:
+            case R.id.sort_by_pages_asc:
+            case R.id.sort_by_pages_desc:
             case R.id.sort_by_gallery_id_asc:
             case R.id.sort_by_gallery_id_desc:
             case R.id.sort_by_create_time_asc:

@@ -132,6 +132,11 @@ class TreeDocumentFile extends UniFile {
     }
 
     @Override
+    public long getTotalSize() {
+        return DocumentsContractApi21.getTotalSize(mContext, mUri);
+    }
+
+    @Override
     public boolean canRead() {
         return com.hippo.unifile.DocumentsContractApi19.canRead(mContext, mUri);
     }

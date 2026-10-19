@@ -43,6 +43,51 @@ public class DownloadListProjectionTest {
     }
 
     @Test
+    public void pageSortingKeepsUnknownPagesLastInBothDirections() {
+        DownloadListProjection view = new DownloadListProjection();
+        DownloadInfo shortGallery = item(10, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
+        shortGallery.total = 12;
+        shortGallery.pages = 200; // The download UI's known total takes priority.
+        shortGallery.finished = 1;
+        DownloadInfo longGallery = item(20, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
+        longGallery.total = -1;
+        longGallery.pages = 80; // Metadata is the fallback before download totals are known.
+        longGallery.finished = 0;
+        DownloadInfo unknown = item(30, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
+        List<DownloadInfo> source = Arrays.asList(unknown, longGallery, shortGallery);
+        view.select(R.id.sort_by_pages_asc);
+        assertEquals(Arrays.asList(10L, 20L, 30L), ids(view.apply(null, source, null)));
+        view.select(R.id.sort_by_pages_desc);
+        assertEquals(Arrays.asList(20L, 10L, 30L), ids(view.apply(null, source, null)));
+        assertEquals(Arrays.asList(30L, 20L, 10L), ids(source));
+    }
+
+    @Test
+    public void randomSortingKeepsOrderAcrossRefreshAndComposesWithFilters() {
+        DownloadListProjection view = new DownloadListProjection();
+        List<DownloadInfo> source = new ArrayList<>();
+        for (int i = 0; i < 20; i++) source.add(item(i, DownloadInfo.STATE_FINISH, EhConfig.MANGA));
+        source.add(item(100, DownloadInfo.STATE_WAIT, EhConfig.MANGA));
+        source.add(item(200, DownloadInfo.STATE_FINISH, EhConfig.DOUJINSHI));
+        List<Long> original = ids(source);
+        view.select(R.id.sort_by_random);
+        List<Long> first = ids(view.apply(null, source, null));
+        assertEquals(first, ids(view.apply(null, source, null)));
+        List<Long> sorted = new ArrayList<>(first);
+        java.util.Collections.sort(sorted);
+        assertEquals(original, sorted);
+        assertEquals(original, ids(source));
+        view.select(R.id.download_done);
+        view.select(R.id.manga);
+        first.remove(Long.valueOf(100));
+        first.remove(Long.valueOf(200));
+        assertEquals(first, ids(view.apply(null, source, null)));
+        source.remove(0);
+        first.remove(Long.valueOf(0));
+        assertEquals(first, ids(view.apply(null, source, null)));
+    }
+
+    @Test
     public void filteringSurvivesDeletionAndTracksStateChanges() {
         DownloadListProjection view = new DownloadListProjection();
         view.select(R.id.download_done);

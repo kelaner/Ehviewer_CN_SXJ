@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_refresh_tags">联网刷新标签</string>
+    <string name="download_refresh_covers">联网刷新封面</string>
+    <string name="download_reload_cover">刷新封面</string>
+    <string name="download_refresh_progress">总数：%1$d\n已完成：%2$d\n成功：%3$d\n失败：%4$d\n\n%5$s</string>
+    <string name="download_refresh_finished">处理完成</string>
+    <string name="download_refresh_no_items">没有可刷新的下载项</string>
+    <string name="download_refresh_no_token">缺少有效画廊地址，无法联网刷新</string>
+    <string name="download_refresh_invalid_image">封面文件无效或无法解码</string>
+    <string name="download_refresh_storage_error">无法安全替换封面文件，已保留原封面</string>
+</resources>

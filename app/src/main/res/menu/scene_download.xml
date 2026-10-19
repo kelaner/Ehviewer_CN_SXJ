@@ -27,6 +27,8 @@
                 android:id="@+id/sort_by_default"
                 android:title="@string/default_sort"
                 app:showAsAction="ifRoom"/>
+            <item android:id="@+id/sort_by_random"
+                android:title="@string/download_sort_random" />
             <item
                 android:id="@+id/sort_by_gallery_id_asc"
                 android:title="@string/sort_by_gallery_id_asc"
@@ -34,14 +36,6 @@
             <item
                 android:id="@+id/sort_by_gallery_id_desc"
                 android:title="@string/sort_by_gallery_id_desc"
-                app:showAsAction="ifRoom"/>
-            <item
-                android:id="@+id/sort_by_create_time_asc"
-                android:title="@string/sort_by_create_time_asc"
-                app:showAsAction="ifRoom"/>
-            <item
-                android:id="@+id/sort_by_create_time_desc"
-                android:title="@string/sort_by_create_time_desc"
                 app:showAsAction="ifRoom"/>
             <item
                 android:id="@+id/sort_by_rating_asc"
@@ -58,6 +52,18 @@
             <item
                 android:id="@+id/sort_by_name_desc"
                 android:title="@string/sort_by_name_desc"
+                app:showAsAction="ifRoom"/>
+            <item android:id="@+id/sort_by_pages_asc"
+                android:title="@string/download_sort_pages_asc" />
+            <item android:id="@+id/sort_by_pages_desc"
+                android:title="@string/download_sort_pages_desc" />
+            <item
+                android:id="@+id/sort_by_create_time_asc"
+                android:title="@string/sort_by_create_time_asc"
+                app:showAsAction="ifRoom"/>
+            <item
+                android:id="@+id/sort_by_create_time_desc"
+                android:title="@string/sort_by_create_time_desc"
                 app:showAsAction="ifRoom"/>
             <item
                 android:id="@+id/sort_by_file_size_asc"
@@ -200,6 +206,16 @@
       android:id="@+id/action_reset_reading_progress"
       android:title="@string/download_reset_reading_progress"
       app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_refresh_download_tags"
+        android:title="@string/download_refresh_tags"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_refresh_download_covers"
+        android:title="@string/download_refresh_covers"
+        app:showAsAction="never"/>
 
     <item
         android:id="@+id/import_local_archive"

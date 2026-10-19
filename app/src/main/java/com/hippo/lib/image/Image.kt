@@ -201,14 +201,27 @@ class Image private constructor(
                     stickerBitmap
                 }
             }
-            nativeTexImage(
-                bitmap,
-                init,
-                offsetX,
-                offsetY,
-                width,
-                height
-            )
+            // The native uploader accepts only RGBA_8888 pixels.
+            // Keep the decoded/shared bitmap intact and recycle only this temporary copy.
+            val uploadBitmap = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+                bitmap
+            } else {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return
+            }
+            try {
+                nativeTexImage(
+                    uploadBitmap,
+                    init,
+                    offsetX,
+                    offsetY,
+                    width,
+                    height
+                )
+            } finally {
+                if (uploadBitmap !== bitmap) {
+                    uploadBitmap.recycle()
+                }
+            }
         } catch (e: ClassCastException) {
             Analytics.recordException(e)
             return

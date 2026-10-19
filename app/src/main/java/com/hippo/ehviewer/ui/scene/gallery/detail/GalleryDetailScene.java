@@ -279,6 +279,7 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
     private ViewTransition mViewTransition2;
     @Nullable
     private PopupMenu mPopupMenu;
+    private com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog mCoverRefreshDialog;
 
     @WholeLifeCircle
     private int mDownloadState;
@@ -700,6 +701,10 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
 
     @Override
     public void onDestroyView() {
+        if (mCoverRefreshDialog != null) {
+            mCoverRefreshDialog.stop();
+            mCoverRefreshDialog = null;
+        }
         super.onDestroyView();
 
         Context context = getEHContext();
@@ -1095,8 +1100,33 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
             return;
         }
 
+        Map<String, GalleryTagGroup> displayedGroups = new java.util.LinkedHashMap<>();
+        java.util.Set<String> identities = new java.util.HashSet<>();
+        java.util.Set<String> localIdentities = new java.util.HashSet<>();
+        if (tagGroups != null) for (GalleryTagGroup original : tagGroups) {
+            GalleryTagGroup copy = new GalleryTagGroup();
+            copy.groupName = original.groupName;
+            for (int i = 0; i < original.size(); i++) {
+                String raw = original.getTagAt(i);
+                copy.addTag(raw);
+                identities.add(new com.hippo.ehviewer.download.DownloadTags.Tag(original.groupName, raw).identity());
+            }
+            displayedGroups.put(copy.groupName, copy);
+        }
+        for (com.hippo.ehviewer.download.DownloadTags.Tag local
+                : com.hippo.ehviewer.download.DownloadTags.getLocalTags(getGid())) {
+            if (!identities.add(local.identity())) continue;
+            GalleryTagGroup group = displayedGroups.get(local.namespace);
+            if (group == null) {
+                group = new GalleryTagGroup();
+                group.groupName = local.namespace;
+                displayedGroups.put(local.namespace, group);
+            }
+            group.addTag(local.raw);
+            localIdentities.add(local.identity());
+        }
         mTags.removeViews(1, mTags.getChildCount() - 1);
-        if (tagGroups == null || tagGroups.length == 0) {
+        if (displayedGroups.isEmpty()) {
             mNoTags.setVisibility(View.VISIBLE);
             return;
         } else {
@@ -1107,7 +1137,8 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
 
         int colorTag = AttrResources.getAttrColor(context, R.attr.tagBackgroundColor);
         int colorName = AttrResources.getAttrColor(context, R.attr.tagGroupBackgroundColor);
-        for (GalleryTagGroup tg : tagGroups) {
+        int colorLocal = resources.getColor(R.color.download_local_tag_background);
+        for (GalleryTagGroup tg : displayedGroups.values()) {
             LinearLayout ll = (LinearLayout) inflater.inflate(R.layout.gallery_tag_group, mTags, false);
             ll.setOrientation(LinearLayout.HORIZONTAL);
             mTags.addView(ll);
@@ -1140,7 +1171,9 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
                 }
 
                 tag.setText(readableTag != null ? readableTag : tagStr);
-                tag.setBackgroundDrawable(new RoundSideRectDrawable(colorTag));
+                boolean local = localIdentities.contains(new com.hippo.ehviewer.download.DownloadTags.Tag(tg.groupName, tagStr).identity());
+                tag.setBackgroundDrawable(new RoundSideRectDrawable(local ? colorLocal : colorTag));
+                if (local) tag.setContentDescription(context.getString(R.string.download_local_tag_description, tag.getText()));
                 tag.setTag(R.id.tag, tg.groupName + ":" + tagStr);
                 tag.setOnClickListener(this);
                 tag.setOnLongClickListener(this);
@@ -1347,6 +1380,24 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
                         UrlOpener.openUrl(activity, url, false);
                     }
                     break;
+                case R.id.action_reload_download_cover: {
+                    GalleryInfo info = getGalleryInfo();
+                    DownloadInfo download = info == null ? null
+                            : EhApplication.getDownloadManager(context).getDownloadInfo(info.gid);
+                    if (download != null) {
+                        if (mCoverRefreshDialog != null) mCoverRefreshDialog.stop();
+                        mCoverRefreshDialog = new com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog(
+                                context, java.util.Collections.singletonList(download),
+                                com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.LOCAL_COVER,
+                                () -> {
+                                    if (mThumb != null) mThumb.load(EhCacheKeyFactory.getThumbKey(download.gid),
+                                            download.thumb == null ? "local-cover:" + download.gid : download.thumb,
+                                            new com.hippo.ehviewer.ui.scene.download.part.ThumbDataContainer(download), false);
+                                });
+                        mCoverRefreshDialog.start();
+                    }
+                    break;
+                }
                 case R.id.action_refresh:
                     if (mState != STATE_REFRESH && mState != STATE_REFRESH_HEADER) {
                         adjustViewVisibility(STATE_REFRESH, true);
@@ -1451,6 +1502,9 @@ public class GalleryDetailScene extends BaseScene implements View.OnClickListene
         } else if (mOtherActions == v) {
             ensurePopMenu();
             if (mPopupMenu != null) {
+                GalleryInfo coverInfo = getGalleryInfo();
+                mPopupMenu.getMenu().findItem(R.id.action_reload_download_cover).setVisible(coverInfo != null
+                        && EhApplication.getDownloadManager(mContext).containDownloadInfo(coverInfo.gid));
                 mPopupMenu.show();
             }
         } else if (mUploader == v) {

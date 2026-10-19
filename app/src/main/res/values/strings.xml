@@ -747,12 +747,12 @@
     <string name="settings_privacy_pattern_protection_not_set">Pattern protection has not been set</string>
     <string name="settings_privacy_pattern_protection_set">Pattern protection has been set</string>
     <string name="settings_advanced_export_data">Export data</string>
-    <string name="settings_advanced_export_data_summary">Save data like download list, quick search list, to external storage</string>
+    <string name="settings_advanced_export_data_summary">Save settings, downloads, bookmarks and other data to external storage</string>
     <string name="settings_advanced_export_data_to">Exported data to %s</string>
     <string name="settings_advanced_export_data_failed">Failed to export data</string>
     <string name="settings_advanced_import_data">Import data</string>
     <string name="settings_advanced_import_data_summary">Load data which were previously saved</string>
-    <string name="settings_advanced_import_data_successfully">Data imported successfully</string>
+    <string name="settings_advanced_import_data_successfully">Data imported successfully. If settings were included, restart the app to apply all changes.</string>
     <string name="settings_advanced_wifi_sender">WiFi data migration</string>
     <string name="settings_advanced_wifi_sander_summary">Data Migration via Wi-Fi Hotspot</string>
     <string name="settings_advanced_wifi_client">WiFi migration data reception</string>

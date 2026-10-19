@@ -1,7 +1,11 @@
 package com.hippo.ehviewer.ui.scene.download.part;
 
 import android.content.Context;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.OpenableColumns;
 
+import com.hippo.ehviewer.EhApplication;
 import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.client.EhConfig;
 import com.hippo.ehviewer.client.EhUtils;
@@ -13,6 +17,9 @@ import com.hippo.unifile.UniFile;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
 
 /** Current download-page conditions. Always projects a fresh manager snapshot. */
 public final class DownloadListProjection {
@@ -20,6 +27,8 @@ public final class DownloadListProjection {
     private int category = EhUtils.ALL_CATEGORY;
     private boolean localOnly;
     private int sort = R.id.sort_by_default;
+    private final Map<Long, Long> randomOrder = new HashMap<>();
+    private final Random random = new Random();
 
     public void select(int id) {
         if (id == R.id.all) state = -1;
@@ -35,7 +44,10 @@ public final class DownloadListProjection {
                 || id == R.id.western) {
             localOnly = id == R.id.local_import;
             category = categoryFor(id);
-        } else sort = id;
+        } else {
+            sort = id;
+            randomOrder.clear();
+        }
     }
 
     public boolean hasStateFilter() { return state != -1; }
@@ -55,8 +67,14 @@ public final class DownloadListProjection {
                     && !matchesTags(context, info, query)) continue;
             result.add(info);
         }
+        if (sort == R.id.sort_by_random) {
+            for (DownloadInfo info : result) {
+                if (!randomOrder.containsKey(info.gid)) randomOrder.put(info.gid, random.nextLong());
+            }
+        }
         Collections.sort(result, (left, right) -> {
             if (sort == R.id.sort_by_default) return Long.compare(right.time, left.time);
+            if (sort == R.id.sort_by_random) return Long.compare(randomOrder.get(left.gid), randomOrder.get(right.gid));
             int compared = 0;
             if (sort == R.id.sort_by_gallery_id_asc || sort == R.id.sort_by_gallery_id_desc)
                 compared = Long.compare(left.gid, right.gid);
@@ -64,7 +82,13 @@ public final class DownloadListProjection {
                 compared = Long.compare(left.time, right.time);
             else if (sort == R.id.sort_by_rating_asc || sort == R.id.sort_by_rating_desc)
                 compared = Float.compare(left.rating, right.rating);
-            else if (sort == R.id.sort_by_name_asc || sort == R.id.sort_by_name_desc) {
+            else if (sort == R.id.sort_by_pages_asc || sort == R.id.sort_by_pages_desc) {
+                int leftPages = left.total > 0 ? left.total : left.pages;
+                int rightPages = right.total > 0 ? right.total : right.pages;
+                if (leftPages <= 0) return rightPages <= 0 ? 0 : 1;
+                if (rightPages <= 0) return -1;
+                compared = Integer.compare(leftPages, rightPages);
+            } else if (sort == R.id.sort_by_name_asc || sort == R.id.sort_by_name_desc) {
                 if (left.title == null) return right.title == null ? 0 : 1;
                 if (right.title == null) return -1;
                 compared = left.title.compareToIgnoreCase(right.title);
@@ -75,7 +99,8 @@ public final class DownloadListProjection {
             }
             boolean descending = sort == R.id.sort_by_gallery_id_desc
                     || sort == R.id.sort_by_create_time_desc || sort == R.id.sort_by_rating_desc
-                    || sort == R.id.sort_by_name_desc || sort == R.id.sort_by_file_size_desc;
+                    || sort == R.id.sort_by_name_desc || sort == R.id.sort_by_file_size_desc
+                    || sort == R.id.sort_by_pages_desc;
             return descending ? -compared : compared;
         });
         return result;
@@ -98,25 +123,39 @@ public final class DownloadListProjection {
     }
 
     public static void loadFileSizes(List<DownloadInfo> source) {
+        loadFileSizes(EhApplication.getInstance(), source);
+    }
+
+    public static void loadFileSizes(Context context, List<DownloadInfo> source) {
         for (DownloadInfo info : source) {
-            if (info.fileSize >= 0) continue;
+            // Refresh even completed entries: downloads grow and files can be deleted externally.
+            long size = -1;
             try {
-                UniFile directory = SpiderDen.getGalleryDownloadDir(info);
-                if (directory != null && directory.isDirectory()) info.fileSize = folderSize(directory);
+                if (info.archiveUri != null && !info.archiveUri.isEmpty()
+                        && !DownloadAlbumImporter.Companion.isLocalAlbum(info)) {
+                    size = archiveSize(context, Uri.parse(info.archiveUri));
+                } else {
+                    UniFile directory = SpiderDen.getExistingGalleryDownloadDir(info);
+                    if (directory != null) size = directory.getTotalSize();
+                }
             } catch (Exception ignored) {
-                // Unavailable storage keeps the existing unknown-size value.
+                // Lost permissions or unavailable storage must not leave a stale known size.
             }
+            info.fileSize = size >= 0 ? size : -1;
         }
     }
 
-    private static long folderSize(UniFile folder) {
-        long size = 0;
-        UniFile[] files = folder.listFiles();
-        if (files != null) for (UniFile file : files) {
-            if (file.isDirectory()) size += folderSize(file);
-            else if (file.isFile()) size += Math.max(0, file.length());
+    private static long archiveSize(Context context, Uri uri) {
+        if ("file".equals(uri.getScheme())) {
+            UniFile file = UniFile.fromUri(context, uri);
+            return file != null ? file.getTotalSize() : -1;
         }
-        return size;
+        if (!"content".equals(uri.getScheme()) || context == null) return -1;
+        try (Cursor cursor = context.getContentResolver().query(uri,
+                new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor == null || !cursor.moveToFirst() || cursor.isNull(0)) return -1;
+            return cursor.getLong(0);
+        }
     }
 
     private static int categoryFor(int id) {

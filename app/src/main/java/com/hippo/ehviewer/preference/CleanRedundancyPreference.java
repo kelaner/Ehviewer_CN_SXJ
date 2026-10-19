@@ -21,11 +21,16 @@ import android.util.AttributeSet;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import com.hippo.ehviewer.EhApplication;
+import com.hippo.ehviewer.EhDB;
+import com.hippo.ehviewer.dao.DownloadInfo;
+import com.hippo.ehviewer.spider.SpiderInfo;
+import com.hippo.ehviewer.spider.SpiderQueen;
+import java.util.HashSet;
+import java.util.Set;
 import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.Settings;
 import com.hippo.ehviewer.download.DownloadManager;
 import com.hippo.unifile.UniFile;
-import com.hippo.lib.yorozuya.NumberUtils;
 
 public class CleanRedundancyPreference extends TaskPreference {
 
@@ -51,32 +56,30 @@ public class CleanRedundancyPreference extends TaskPreference {
 
         private final EhApplication mApplication;
         private final DownloadManager mManager;
+        private final Set<String> mKnownDirnames = new HashSet<>();
 
         public ClearTask(@NonNull Context context) {
             super(context);
             mApplication = (EhApplication) context.getApplicationContext();
             mManager = EhApplication.getDownloadManager(mApplication);
+            for (DownloadInfo info : mManager.getAllDownloadInfoList()) {
+                String dirname = EhDB.getDownloadDirname(info.gid);
+                if (dirname != null) mKnownDirnames.add(dirname);
+            }
         }
 
         // True for cleared
         private boolean clearFile(UniFile file) {
             String name = file.getName();
-            if (name == null) {
+            if (!file.isDirectory() || !file.canRead() || !file.canWrite() || name == null || mKnownDirnames.contains(name)) {
                 return false;
             }
-            int index = name.indexOf('-');
-            if (index >= 0) {
-                name = name.substring(0, index);
-            }
-            long gid = NumberUtils.parseLongSafely(name, -1L);
-            if (-1L == gid) {
+            // Folder names may be customized or belong to unrelated user files.
+            SpiderInfo header = SpiderInfo.readHeader(file.findFile(SpiderQueen.SPIDER_INFO_FILENAME));
+            if (header == null || mManager.containDownloadInfo(header.gid)) {
                 return false;
             }
-            if (mManager.containDownloadInfo(gid)) {
-                return false;
-            }
-            file.delete();
-            return true;
+            return file.delete();
         }
 
         @Override

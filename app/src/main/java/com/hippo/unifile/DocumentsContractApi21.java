@@ -25,6 +25,7 @@ import android.os.Build;
 import android.provider.DocumentsContract;
 import android.util.Log;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -98,6 +99,53 @@ final class DocumentsContractApi21 {
         }
 
         return results.toArray(new Uri[results.size()]);
+    }
+
+    public static long getTotalSize(Context context, Uri self) {
+        final ContentResolver resolver = context.getContentResolver();
+        final String mimeColumn = DocumentsContract.Document.COLUMN_MIME_TYPE;
+        final String sizeColumn = DocumentsContract.Document.COLUMN_SIZE;
+        try {
+            // Read the root once; child rows already contain their type and size.
+            try (Cursor cursor = resolver.query(self,
+                    new String[]{mimeColumn, sizeColumn}, null, null, null)) {
+                if (cursor == null || cursor.getExtras().getBoolean(
+                        DocumentsContract.EXTRA_LOADING, false)
+                        || !cursor.moveToFirst() || cursor.isNull(0)) return -1;
+                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(0))) {
+                    return cursor.isNull(1) ? -1 : Math.max(-1, cursor.getLong(1));
+                }
+            }
+            ArrayDeque<Uri> directories = new ArrayDeque<>();
+            directories.add(self);
+            long size = 0;
+            while (!directories.isEmpty()) {
+                Uri directory = directories.removeLast();
+                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(directory,
+                        DocumentsContract.getDocumentId(directory));
+                try (Cursor cursor = resolver.query(children, new String[]{
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID, mimeColumn, sizeColumn},
+                        null, null, null)) {
+                    if (cursor == null || cursor.getExtras().getBoolean(
+                            DocumentsContract.EXTRA_LOADING, false)) return -1;
+                    while (cursor.moveToNext()) {
+                        if (cursor.isNull(1)) return -1;
+                        if (DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(1))) {
+                            if (cursor.isNull(0)) return -1;
+                            directories.add(DocumentsContract.buildDocumentUriUsingTree(self,
+                                    cursor.getString(0)));
+                        } else {
+                            if (cursor.isNull(2) || cursor.getLong(2) < 0) return -1;
+                            size += cursor.getLong(2);
+                        }
+                    }
+                }
+            }
+            return size;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to calculate size: " + self, e);
+            return -1;
+        }
     }
 
     public static Uri renameTo(Context context, Uri self, String displayName) {

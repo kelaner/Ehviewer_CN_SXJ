@@ -213,10 +213,23 @@ public final class DownloadTags {
         }
     }
 
+    /** Uses the translation database's namespace aliases; unqualified input is an artist. */
+    public static Tag parseLocalTag(String input) {
+        String text = input == null ? "" : input.trim();
+        int colon = text.indexOf(':');
+        Tag tag = colon < 0 ? new Tag("artist", text)
+                : new Tag(text.substring(0, colon), text.substring(colon + 1));
+        return isLocalTagNamespace(tag.namespace) && !tag.raw.isEmpty() ? tag : null;
+    }
+
+    private static boolean isLocalTagNamespace(String namespace) {
+        return !"rows".equals(namespace) && EhTagDatabase.namespaceToPrefix(namespace) != null;
+    }
+
     /** Each selected item is checked separately; duplicates and unfinished items are skipped. */
     public static synchronized int addLocalTags(List<DownloadInfo> infos, String namespace, String raw) {
         Tag tag = new Tag(namespace, raw);
-        if (!(tag.namespace.equals("artist") || tag.namespace.equals("character") || tag.namespace.equals("group")) || tag.raw.isEmpty()) return 0;
+        if (!isLocalTagNamespace(tag.namespace) || tag.raw.isEmpty()) return 0;
         int changed = 0;
         database.beginTransaction();
         try {

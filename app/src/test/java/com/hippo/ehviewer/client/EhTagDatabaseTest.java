@@ -35,7 +35,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = 28, application = android.app.Application.class)
 @RunWith(RobolectricTestRunner.class)
 public class EhTagDatabaseTest {
 
@@ -63,6 +63,23 @@ public class EhTagDatabaseTest {
   public void locationNamespaceMapsToLocPrefix() {
     assertEquals("loc:", EhTagDatabase.namespaceToPrefix("location"));
     assertEquals("location", EhTagDatabase.prefixToNamespace("loc:"));
+  }
+
+  @Test
+  public void localTagInputUsesDatabasePrefixesAndDefaultsToArtist() {
+    assertEquals("artist:some name", com.hippo.ehviewer.download.DownloadTags.parseLocalTag(" Some Name ").identity());
+    String[][] aliases = {{"a", "artist"}, {"cos", "cosplayer"}, {"c", "character"},
+        {"f", "female"}, {"g", "group"}, {"l", "language"}, {"loc", "location"},
+        {"m", "male"}, {"x", "mixed"}, {"o", "other"}, {"p", "parody"}, {"r", "reclass"}};
+    for (String[] alias : aliases) {
+      assertEquals(alias[1] + ":sample", com.hippo.ehviewer.download.DownloadTags.parseLocalTag(alias[0] + ":sample").identity());
+      assertEquals(alias[1] + ":sample", com.hippo.ehviewer.download.DownloadTags.parseLocalTag(alias[1] + ":sample").identity());
+    }
+    assertEquals("misc:sample", com.hippo.ehviewer.download.DownloadTags.parseLocalTag("misc:sample").identity());
+    assertNull(com.hippo.ehviewer.download.DownloadTags.parseLocalTag("unknown:sample"));
+    assertNull(com.hippo.ehviewer.download.DownloadTags.parseLocalTag("n:artist"));
+    assertNull(com.hippo.ehviewer.download.DownloadTags.parseLocalTag("a: "));
+    assertNull(com.hippo.ehviewer.download.DownloadTags.parseLocalTag(" "));
   }
 
   @Test

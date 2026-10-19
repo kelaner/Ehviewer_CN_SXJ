@@ -659,12 +659,12 @@
     <string name="settings_privacy_pattern_protection_not_set">未设置图案保护</string>
     <string name="settings_privacy_pattern_protection_set">已设置图案保护</string>
     <string name="settings_advanced_export_data">导出数据</string>
-    <string name="settings_advanced_export_data_summary">保存数据至外置存储器，例如下载列表，书签列表</string>
+    <string name="settings_advanced_export_data_summary">保存设置、下载列表、书签等数据至外置存储器</string>
     <string name="settings_advanced_export_data_to">已导出数据至 %s</string>
     <string name="settings_advanced_export_data_failed">导出数据失败</string>
     <string name="settings_advanced_import_data">导入数据</string>
     <string name="settings_advanced_import_data_summary">从外置存储器导入数据</string>
-    <string name="settings_advanced_import_data_successfully">导入数据成功</string>
+    <string name="settings_advanced_import_data_successfully">导入数据成功。如备份包含设置，请重启应用使全部设置生效。</string>
     <string name="settings_advanced_wifi_sender">WiFi 数据迁移</string>
     <string name="settings_advanced_wifi_sander_summary">通过WiFi热点迁移数据</string>
     <string name="settings_advanced_wifi_client">WiFi 迁移数据接收</string>

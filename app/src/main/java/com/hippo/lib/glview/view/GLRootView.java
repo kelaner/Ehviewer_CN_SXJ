@@ -407,6 +407,12 @@ public class GLRootView extends GLSurfaceView
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        requestRenderForced();
+    }
+
+    @Override
     public void setOrientationSource(OrientationSource source) {
         mOrientationSource = source;
     }
@@ -556,6 +562,8 @@ public class GLRootView extends GLSurfaceView
             } else {
                 setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
             }
+            // Context recreation invalidates textures; make the first upload explicit.
+            requestRenderForced();
         }
 
         /**
@@ -571,6 +579,8 @@ public class GLRootView extends GLSurfaceView
             AssertUtils.assertTrue(mGL == gl);
 
             mCanvas.setSize(width, height);
+            // Keyboard and other window insets can resize the surface while dirty rendering is enabled.
+            requestRenderForced();
         }
 
         @Override

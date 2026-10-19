@@ -75,6 +75,7 @@ class RestoreDownloadPreference : Preference {
             EhApplication.getOkHttpClient(mApplication)
         private val mHandler = Handler(Looper.getMainLooper())
         private val mCancelled = AtomicBoolean(false)
+        private val mKnownGids = mManager.allDownloadInfoList.mapTo(HashSet()) { it.gid }
         private var mProgressDialog: ProgressDialog? = null
 
         fun start() {
@@ -93,6 +94,7 @@ class RestoreDownloadPreference : Preference {
 
         fun cancel() {
             mCancelled.set(true)
+            dismissProgressDialog()
         }
 
         private fun onPreExecute() {
@@ -113,10 +115,10 @@ class RestoreDownloadPreference : Preference {
             // Only need gid/token for restore; avoid failing on corrupt pToken lines.
             val spiderInfo = SpiderInfo.readHeader(siFile) ?: return null
             val gid = spiderInfo.gid
-            if (mManager.containDownloadInfo(gid)) {
+            val token = spiderInfo.token
+            if (gid <= 0 || token.isNullOrBlank() || !mKnownGids.add(gid)) {
                 return null
             }
-            val token = spiderInfo.token
             val restoreItem = RestoreItem()
             restoreItem.gid = gid
             restoreItem.token = token
@@ -212,12 +214,12 @@ class RestoreDownloadPreference : Preference {
         }
 
         private fun onCancelled() {
-            mTask = null
+            if (mTask === this) mTask = null
             dismissProgressDialog()
         }
 
         private fun onPostExecute(o: Any?) {
-            mTask = null
+            if (mTask === this) mTask = null
             dismissProgressDialog()
             if (o !is MutableList<*>) {
                 Toast.makeText(
@@ -240,11 +242,10 @@ class RestoreDownloadPreference : Preference {
                     while (i < n) {
                         val item = list.get(i)
                         // Avoid failed gallery info
-                        if (null != item.title) {
-                            // Put to download
-                            mManager.addDownload(item, null)
-                            // Put download dir to DB
+                        if (!item.title.isNullOrBlank() && !mManager.containDownloadInfo(item.gid)) {
+                            // Resolve the restored folder before notifying download listeners.
                             EhDB.putDownloadDirname(item.gid, item.dirname)
+                            mManager.addDownload(item, null)
                             count++
                         }
                         i++
@@ -258,8 +259,8 @@ class RestoreDownloadPreference : Preference {
                         Toast.LENGTH_SHORT
                     ).show()
 
-                    if (this.isContextValid) {
-                        (mContext as Activity).setResult(Activity.RESULT_OK)
+                    if (this.isContextValid && mContext is Activity) {
+                        mContext.setResult(Activity.RESULT_OK)
                     }
                 }
             }

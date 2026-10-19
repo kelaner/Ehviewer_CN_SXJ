@@ -301,6 +301,25 @@ public abstract class UniFile {
     public abstract long length();
 
     /**
+     * Returns the current total bytes of this file or all files below this directory.
+     * Returns -1 if any size or directory listing is unavailable. Does not cache metadata.
+     * Call on a worker thread; document providers may require remote queries.
+     */
+    public long getTotalSize() {
+        if (isFile()) return length();
+        if (!isDirectory()) return -1;
+        UniFile[] files = listFiles();
+        if (files == null) return -1;
+        long size = 0;
+        for (UniFile file : files) {
+            long childSize = file.getTotalSize();
+            if (childSize < 0) return -1;
+            size += childSize;
+        }
+        return size;
+    }
+
+    /**
      * Indicates whether the current context is allowed to read from this file.
      *
      * @return {@code true} if this file can be read, {@code false} otherwise.

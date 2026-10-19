@@ -30,13 +30,18 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Test download projection and URL parsers
+      - name: Test download sorting, tags, storage, backup and URL parsers
         run: |
           chmod +x ./gradlew
           ./gradlew :app:testAppReleaseDebugUnitTest \
             --tests com.hippo.ehviewer.download.DownloadListProjectionTest \
             --tests com.hippo.ehviewer.client.parser.GalleryDetailUrlParserTest \
             --tests com.hippo.ehviewer.client.parser.GalleryPageUrlParserTest \
+            --tests com.hippo.ehviewer.client.EhTagDatabaseTest \
+            --tests com.hippo.unifile.UniFileSizeTest \
+            --tests com.hippo.ehviewer.download.DownloadFileSizesTest \
+            --tests com.hippo.ehviewer.download.DownloadCoverTest \
+            --tests com.hippo.ehviewer.preference.SettingsBackupTest \
             --stacktrace
 
       - name: Prepare release signing

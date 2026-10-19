@@ -191,6 +191,7 @@ public class DownloadLabelDraw {
         builder.setPositiveButton(android.R.string.ok, null);
         builder.setNegativeButton(android.R.string.cancel, null);
         AlertDialog dialog = builder.show();
+        com.hippo.ehviewer.ui.scene.download.part.DownloadDialogIme.restoreOnDismiss(dialog, builder.getEditText());
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String text = builder.getText();
             if (text.isEmpty()) builder.setError(context.getString(R.string.label_text_is_empty));
@@ -242,11 +243,13 @@ public class DownloadLabelDraw {
         final TextView name;
         final TextView count;
         final View handle;
+        final View menu;
         GroupHolder(View view) {
             super(view);
             name = view.findViewById(R.id.text1);
             count = view.findViewById(R.id.text2);
             handle = view.findViewById(R.id.drag_handler);
+            menu = view.findViewById(R.id.download_label_menu);
         }
     }
 
@@ -270,11 +273,8 @@ public class DownloadLabelDraw {
                 scene.selectGroup(scene.getGrouping(), group.key);
                 scene.closeDrawer(Gravity.RIGHT);
             });
-            holder.itemView.setOnLongClickListener(v -> {
-                if (!"custom".equals(scene.getGrouping()) || !group.editable()) return false;
-                labelActions(group);
-                return true;
-            });
+            holder.menu.setVisibility("custom".equals(scene.getGrouping()) && group.editable() ? View.VISIBLE : View.GONE);
+            holder.menu.setOnClickListener(v -> labelActions(group));
         }
         @Override public int getItemCount() { return groups.size(); }
     }

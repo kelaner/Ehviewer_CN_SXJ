@@ -157,13 +157,18 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
         return list.get(posInList).gid
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DownloadHolder {
-        val holder = DownloadHolder(mInflater.inflate(R.layout.item_download, parent, false))
+    override fun getItemViewType(position: Int): Int = if (mScene.isThumbnailMode) 1 else 0
 
-        val lp = holder.thumb.layoutParams
-        lp.width = mListThumbWidth
-        lp.height = mListThumbHeight
-        holder.thumb.setLayoutParams(lp)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DownloadHolder {
+        val holder = DownloadHolder(mInflater.inflate(
+            if (mScene.isThumbnailMode) R.layout.item_download_thumb else R.layout.item_download, parent, false))
+
+        if (!mScene.isThumbnailMode) {
+            val lp = holder.thumb.layoutParams
+            lp.width = mListThumbWidth
+            lp.height = mListThumbHeight
+            holder.thumb.layoutParams = lp
+        }
 
         return holder
     }

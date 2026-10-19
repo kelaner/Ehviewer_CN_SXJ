@@ -32,7 +32,6 @@ import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.callBack.DownloadSearchCallback;
 import com.hippo.ehviewer.dao.DownloadInfo;
 import com.hippo.ehviewer.download.DownloadManager;
-import com.hippo.ehviewer.sync.DownloadListInfosExecutor;
 import com.hippo.ehviewer.widget.MyEasyRecyclerView;
 import com.hippo.ehviewer.widget.SearchBar;
 import com.hippo.util.DrawableManager;
@@ -73,6 +72,8 @@ public class DownloadSearchController implements SearchBar.Helper, SearchBarMove
         DownloadManager getDownloadManager();
 
         void updateForLabel();
+
+        void selectCondition(int id);
 
         DownloadSearchCallback getDownloadSearchCallback();
     }
@@ -150,41 +151,18 @@ public class DownloadSearchController implements SearchBar.Helper, SearchBarMove
     }
 
     public void startSearching() {
-        mHost.getProgressView().setVisibility(View.VISIBLE);
-        MyEasyRecyclerView recyclerView = mHost.getRecyclerView();
-        if (recyclerView != null) {
-            recyclerView.setVisibility(View.GONE);
-        }
-
         if (mSearchMode) {
             mSearchMode = false;
             mSearchBar.setTitle(mHost.getSearchKey());
             mSearchBar.setState(SearchBar.STATE_NORMAL);
         }
-
-        mSearchDialog.dismiss();
-
+        if (mSearchDialog != null) mSearchDialog.dismiss();
         mHost.updateForLabel();
-
-        DownloadListInfosExecutor executor = new DownloadListInfosExecutor(mHost.getList(), mHost.getSearchKey());
-
-        executor.setDownloadSearchingListener(mHost.getDownloadSearchCallback());
-
-        executor.executeSearching();
+        mHost.setSearching(false);
     }
 
     public void gotoFilterAndSort(int id) {
-        mHost.getProgressView().setVisibility(View.VISIBLE);
-        MyEasyRecyclerView recyclerView = mHost.getRecyclerView();
-        if (recyclerView != null) {
-            recyclerView.setVisibility(View.GONE);
-        }
-
-        DownloadListInfosExecutor executor = new DownloadListInfosExecutor(mHost.getBackList(), mHost.getDownloadManager());
-
-        executor.setDownloadSearchingListener(mHost.getDownloadSearchCallback());
-
-        executor.executeFilterAndSort(id);
+        mHost.selectCondition(id);
     }
 
     @Override

@@ -7,6 +7,9 @@ on:
     branches: [ BiLi_PC_Gamer ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,15 +22,68 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: 21
+          java-version: '21'
 
-      - name: Build
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test download projection and URL parsers
         run: |
           chmod +x ./gradlew
-          ./gradlew app:assembleDebug
-          
+          ./gradlew :app:testAppReleaseDebugUnitTest \
+            --tests com.hippo.ehviewer.download.DownloadListProjectionTest \
+            --tests com.hippo.ehviewer.client.parser.GalleryDetailUrlParserTest \
+            --tests com.hippo.ehviewer.client.parser.GalleryPageUrlParserTest \
+            --stacktrace
+
+      - name: Prepare release signing
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.EHVIEWER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.EHVIEWER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.EHVIEWER_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.EHVIEWER_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ehviewer-release.jks"
+          echo "EHVIEWER_KEYSTORE_PATH=$RUNNER_TEMP/ehviewer-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build Release
+        env:
+          EHVIEWER_KEYSTORE_PASSWORD: ${{ secrets.EHVIEWER_KEYSTORE_PASSWORD }}
+          EHVIEWER_KEY_ALIAS: ${{ secrets.EHVIEWER_KEY_ALIAS }}
+          EHVIEWER_KEY_PASSWORD: ${{ secrets.EHVIEWER_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleAppReleaseRelease --stacktrace
+
+      - name: Verify release signature and universal ABIs
+        if: github.event_name != 'pull_request'
+        run: |
+          APK=$(find app/build/outputs/apk -name '*.apk' -print -quit)
+          test -n "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$(dirname "$APKSIGNER")/aapt" dump badging "$APK" | grep '^package:'
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -Z1 "$APK" | grep "^lib/$ABI/libehviewer.so$" > /dev/null
+          done
+          sha256sum "$APK"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Build
-          path: ./app/build/outputs/apk/
+          name: Ehviewer-Release
+          path: ./app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ehviewer-release.jks"

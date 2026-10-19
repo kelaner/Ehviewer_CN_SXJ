@@ -1,18 +1,15 @@
 {
-  "version": "2.0.2.5",
-  "versionCode": 111,
+  "version": "2.0.2.5.1",
+  "versionCode": 112,
   "mustUpdate": false,
   "updateContent": {
-    "fileDownloadUrl": "",
-    "title": "新版发布2.0.2.5 国庆节快乐~",
+    "fileDownloadUrl": "https://github.com/kelaner/Ehviewer_CN_SXJ/releases/tag/v2.0.2.5.1",
+    "title": "新版发布 2.0.2.5.1",
     "content": [
-      "为 Gallery_Tags 增加 LOCATION 标签分类，并同步更新相关数据库处理",
-      "改进 SpiderInfo 解析并增强 RestoreDownloadPreference 功能",
-      "添加阅读刷新率设置功能",
-      "重构下载页，新增下载归档导入、批量操作、选择监听器、搜索控制器及分页控制器",
-      "修复阅读进度重置功能 by: Mios-dream",
-      "添加本地相册导入功能",
-      "修复归档解压因文件名超长导致的导入失败"
+      "修复下载列表删除后排序与过滤刷新，支持标签搜索和视图切换",
+      "新增艺术家、角色、团队分组及已完成下载的本地标签批量管理",
+      "调整下载抽屉标签交互，保留自定义分组与旧版备份兼容",
+      "更换应用包名以支持与旧版同时安装，更新地址切换至本项目"
     ]
   }
 }

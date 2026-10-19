@@ -382,7 +382,9 @@ public class EhEngine {
             if (html != null) {
                 EhApplication.getInstance().showEventPane(html);
             }
-            return GalleryDetailParser.parse(body);
+            GalleryDetail detail = GalleryDetailParser.parse(body);
+            com.hippo.ehviewer.download.DownloadTags.cacheRawTags(detail);
+            return detail;
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);
             throwException(call, code, headers, body, e);

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_group_all">全部</string>
+    <string name="download_group_type">分组类型</string>
+    <string name="download_group_artist">艺术家</string>
+    <string name="download_group_character">角色</string>
+    <string name="download_group_group">团队</string>
+    <string name="download_reorder_label">拖动排序标签</string>
+    <string name="download_filter_list">过滤</string>
+    <string name="download_view_mode">视图模式</string>
+    <string name="download_view_details">详情</string>
+    <string name="download_view_thumbnails">缩略图</string>
+    <string name="download_tag_actions">标签操作</string>
+    <string name="download_local_tags_add">添加本地标签</string>
+    <string name="download_local_tags_clear">清空本地标签</string>
+    <string name="download_local_tags_finished_only">仅修改已完成的下载，未完成项目会跳过。</string>
+    <string name="download_local_tags_clear_message">清空所选已完成下载的全部本地标签？原画廊标签会保留，未完成项目会跳过。</string>
+    <string name="download_local_tag_raw_hint">原文标签，例如 artist:techi</string>
+    <string name="download_local_tag_type_mismatch">命名空间必须与所选类型一致。</string>
+</resources>

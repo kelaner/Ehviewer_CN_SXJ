@@ -84,7 +84,7 @@ class DownloadPaginationController(private val mHost: Host) {
 
     fun positionInList(position: Int): Int {
         val list = mHost.list
-        if (list != null && list.size > paginationSize && this.isCanPagination) {
+        if (list != null && list.size >= paginationSize && this.isCanPagination) {
             return position + pageSize * (indexPage - 1)
         }
         return position
@@ -92,7 +92,7 @@ class DownloadPaginationController(private val mHost: Host) {
 
     fun listIndexInPage(position: Int): Int {
         val list = mHost.list
-        if (list != null && list.size > paginationSize && this.isCanPagination) {
+        if (list != null && list.size >= paginationSize && this.isCanPagination) {
             return position % pageSize
         }
         return position
@@ -188,7 +188,7 @@ class DownloadPaginationController(private val mHost: Host) {
     val currentPageList: MutableList<DownloadInfo>
         get() {
             val list = mHost.list ?: return mutableListOf<DownloadInfo>()
-            if (list.size > paginationSize && this.isCanPagination) {
+            if (list.size >= paginationSize && this.isCanPagination) {
                 var from = pageSize * (indexPage - 1)
                 if (from < 0) {
                     from = 0
@@ -252,7 +252,7 @@ class DownloadPaginationController(private val mHost: Host) {
     @SuppressLint("NotifyDataSetChanged")
     fun initPage(position: Int) {
         val list = mHost.list
-        if (list != null && list.size > paginationSize && this.isCanPagination) {
+        if (list != null && list.size >= paginationSize && this.isCanPagination) {
             indexPage = position / pageSize + 1
         }
         doNotScroll = true

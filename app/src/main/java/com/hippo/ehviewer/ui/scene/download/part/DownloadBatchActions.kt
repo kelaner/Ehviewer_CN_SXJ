@@ -72,6 +72,8 @@ class DownloadBatchActions(private val mHost: Host) {
         fun getString(resId: Int): String?
 
         fun getString(resId: Int, vararg formatArgs: Any?): String?
+
+        fun onLocalTagsChanged()
     }
 
     fun onClickSecondaryFab(view: FabLayout?, fab: FloatingActionButton, position: Int) {
@@ -103,7 +105,9 @@ class DownloadBatchActions(private val mHost: Host) {
             val n = stateArray.size
             while (i < n) {
                 if (stateArray.valueAt(i)) {
-                    val info = list[mHost.positionInList(stateArray.keyAt(i))]
+                    val index = mHost.positionInList(stateArray.keyAt(i))
+                    if (index !in list.indices) { i++; continue }
+                    val info = list[index]
                     if (collectDownloadInfo) {
                         downloadInfoList!!.add(info)
                     }
@@ -180,9 +184,20 @@ class DownloadBatchActions(private val mHost: Host) {
 
                     val helper = MoveDialogHelper(labels, downloadInfoList, recyclerView, mHost)
 
+                    val actions = arrayOf(
+                        mHost.getString(R.string.download_local_tags_add),
+                        mHost.getString(R.string.download_local_tags_clear)
+                    ) + labels
+                    val selected = downloadInfoList.filterNotNull()
                     AlertDialog.Builder(context)
-                        .setTitle(R.string.download_move_dialog_title)
-                        .setItems(labels, helper)
+                        .setTitle(R.string.download_tag_actions)
+                        .setItems(actions) { dialog, which ->
+                            when (which) {
+                                0 -> DownloadLocalTagDialog.showAdd(context, selected) { mHost.onLocalTagsChanged() }
+                                1 -> DownloadLocalTagDialog.showClear(context, selected) { mHost.onLocalTagsChanged() }
+                                else -> helper.onClick(dialog, which - 2)
+                            }
+                        }
                         .show()
                 }
 

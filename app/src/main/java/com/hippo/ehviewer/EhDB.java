@@ -55,6 +55,7 @@ import com.hippo.ehviewer.dao.LocalFavoritesDao;
 import com.hippo.ehviewer.dao.QuickSearch;
 import com.hippo.ehviewer.dao.QuickSearchDao;
 import com.hippo.ehviewer.download.DownloadManager;
+import com.hippo.ehviewer.download.DownloadTags;
 import com.hippo.util.ExceptionUtils;
 import com.hippo.util.SqlUtils;
 import com.hippo.lib.yorozuya.IOUtils;
@@ -218,6 +219,7 @@ public class EhDB {
         DaoMaster daoMaster = new DaoMaster(db);
 
         sDaoSession = daoMaster.newSession();
+        DownloadTags.initialize(sDaoSession.getDatabase());
         MAX_HISTORY_COUNT = Settings.getHistoryInfoSize();
     }
 
@@ -473,11 +475,14 @@ public class EhDB {
         } else {
             // Insert
             dao.insert(downloadInfo);
+            DownloadTags.invalidate(downloadInfo.gid);
+            DownloadTags.onDownloadsChanged();
         }
     }
 
     public static synchronized void removeDownloadInfo(long gid) {
         sDaoSession.getDownloadsDao().deleteByKey(gid);
+        DownloadTags.remove(gid);
     }
 
     @Nullable
@@ -716,17 +721,20 @@ public class EhDB {
         galleryTags.create_time = new Date();
         galleryTags.update_time = galleryTags.create_time;
         dao.insert(galleryTags);
+        DownloadTags.invalidate(galleryTags.gid);
     }
 
     public static synchronized void updateGalleryTags(GalleryTags galleryTags) {
         GalleryTagsDao dao = sDaoSession.getGalleryTagsDao();
         galleryTags.update_time = new Date();
         dao.update(galleryTags);
+        DownloadTags.invalidate(galleryTags.gid);
     }
 
     public static synchronized void deleteGalleryTags(GalleryTags galleryTags) {
         GalleryTagsDao dao = sDaoSession.getGalleryTagsDao();
         dao.delete(galleryTags);
+        DownloadTags.invalidate(galleryTags.gid);
     }
 
     public static synchronized List<QuickSearch> getAllQuickSearch() {
@@ -947,6 +955,9 @@ public class EhDB {
                     return false;
                 if (!copyDao(sDaoSession.getFilterDao(), exportSession.getFilterDao()))
                     return false;
+                if (!copyDao(sDaoSession.getGalleryTagsDao(), exportSession.getGalleryTagsDao()))
+                    return false;
+                DownloadTags.copy(sDaoSession.getDatabase(), exportSession.getDatabase());
             }
 
             // Copy export db to data dir
@@ -1060,13 +1071,13 @@ public class EhDB {
             }
 
             List<GalleryTags> galleryTagsList = session.getGalleryTagsDao().queryBuilder().list();
-            List<GalleryTags> currentGalleryTags = sDaoSession.getGalleryTagsDao().queryBuilder().list();
             for (GalleryTags tags : galleryTagsList) {
-                if (!currentGalleryTags.contains(tags)) {
+                if (!inGalleryTags(tags.gid)) {
                     insertGalleryTags(tags);
                 }
             }
 
+            DownloadTags.copy(session.getDatabase(), sDaoSession.getDatabase());
             return null;
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);

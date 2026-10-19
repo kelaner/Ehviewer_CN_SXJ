@@ -71,6 +71,8 @@ import com.hippo.ehviewer.client.EhUtils;
 import com.hippo.ehviewer.dao.DownloadInfo;
 import com.hippo.ehviewer.download.DownloadManager;
 import com.hippo.ehviewer.download.DownloadService;
+import com.hippo.ehviewer.download.DownloadTags;
+import com.hippo.ehviewer.ui.scene.download.part.DownloadListProjection;
 import com.hippo.ehviewer.event.SomethingNeedRefresh;
 import com.hippo.ehviewer.spider.SpiderInfo;
 import com.hippo.ehviewer.ui.GalleryActivity;
@@ -148,6 +150,43 @@ public class DownloadsScene extends ToolbarScene
     private List<DownloadInfo> mList;
     @Nullable
     private List<DownloadInfo> mBackList;
+    private final DownloadListProjection mProjection = new DownloadListProjection();
+    private String mGrouping;
+    private String mGroupSelection;
+    private boolean mThumbnailMode;
+    private com.hippo.ehviewer.download.DownloadMetadataLoader mMetadataLoader;
+
+    public String getGrouping() { return mGrouping; }
+    public String getGroupSelection() { return mGroupSelection; }
+    public boolean isThumbnailMode() { return mThumbnailMode; }
+
+    public void selectGroup(String type, String selection) {
+        mGrouping = type;
+        mGroupSelection = selection;
+        Settings.putDownloadGrouping(type);
+        Settings.putDownloadGroupSelection(type, selection);
+        if ("custom".equals(type) && !"@all".equals(selection)) {
+            mLabel = selection.startsWith("label:") ? selection.substring(6) : null;
+            Settings.putRecentDownloadLabel(mLabel);
+        }
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
+    }
+
+    @Override
+    public void selectCondition(int id) {
+        mProjection.select(id);
+        updateForLabel();
+        if (id == R.id.sort_by_file_size_asc || id == R.id.sort_by_file_size_desc) {
+            List<DownloadInfo> snapshot = new ArrayList<>(mDownloadManager.getAllDownloadInfoList());
+            com.hippo.util.IoThreadPoolExecutor.Companion.getInstance().execute(() -> {
+                DownloadListProjection.loadFileSizes(snapshot);
+                runOnUiThread(() -> {
+                    if (mAdapter != null) updateForLabel();
+                });
+            });
+        }
+    }
 
     private final DownloadArchiveImporter mArchiveImporter = new DownloadArchiveImporter(this);
     private final DownloadAlbumImporter mAlbumImporter = new DownloadAlbumImporter(this);
@@ -226,6 +265,8 @@ public class DownloadsScene extends ToolbarScene
             DownloadInfo info = mDownloadManager.getDownloadInfo(gid);
             if (null != info) {
                 mLabel = info.getLabel();
+                mGrouping = "custom";
+                mGroupSelection = mLabel == null ? "@default" : "label:" + mLabel;
                 updateForLabel();
                 updateView();
 
@@ -257,6 +298,8 @@ public class DownloadsScene extends ToolbarScene
         AssertUtils.assertNotNull(context);
         mDownloadManager = EhApplication.getDownloadManager(context);
         mDownloadManager.addDownloadInfoListener(this);
+        mGrouping = Settings.getDownloadGrouping();
+        mGroupSelection = Settings.getDownloadGroupSelection(mGrouping);
         mPaginationController.setCanPagination(Settings.getDownloadPagination());
         if (savedInstanceState == null) {
             onInit();
@@ -295,37 +338,99 @@ public class DownloadsScene extends ToolbarScene
             return;
         }
 
-        if (mLabel == null) {
-            mList = mDownloadManager.getDefaultDownloadInfoList();
-        } else {
-            mList = mDownloadManager.getLabelDownloadInfoList(mLabel);
-            if (mList == null) {
-                mLabel = null;
-                mList = mDownloadManager.getDefaultDownloadInfoList();
+        List<DownloadInfo> source = new ArrayList<>(mDownloadManager.getAllDownloadInfoList());
+        if ("custom".equals(mGrouping)) {
+            if (!"@all".equals(mGroupSelection)) {
+                if (mGroupSelection.startsWith("label:")) {
+                    mLabel = mGroupSelection.substring(6);
+                    List<DownloadInfo> labelList = mDownloadManager.getLabelDownloadInfoList(mLabel);
+                    if (labelList == null) {
+                        mLabel = null;
+                        mGroupSelection = "@default";
+                        Settings.putDownloadGroupSelection(mGrouping, mGroupSelection);
+                        source = new ArrayList<>(mDownloadManager.getDefaultDownloadInfoList());
+                    } else source = new ArrayList<>(labelList);
+                } else {
+                    mLabel = null;
+                    source = new ArrayList<>(mDownloadManager.getDefaultDownloadInfoList());
+                }
             }
+        } else if (!"@all".equals(mGroupSelection)) {
+            List<DownloadInfo> grouped = new ArrayList<>();
+            for (DownloadInfo info : source) {
+                boolean known = false;
+                boolean matches = false;
+                for (DownloadTags.Tag tag : DownloadTags.getTags(info.gid)) {
+                    if (!mGrouping.equals(tag.namespace)) continue;
+                    known = true;
+                    if (mGroupSelection.equals(tag.identity())) matches = true;
+                }
+                if (matches || (!known && "@unknown".equals(mGroupSelection))) grouped.add(info);
+            }
+            source = grouped;
         }
+        mBackList = source;
+        rebuildDisplayedList();
+        mPaginationController.queryUnreadSpiderInfo();
+    }
 
-        if (mAdapter != null) {
-            mAdapter.notifyDataSetChanged();
+    private void rebuildDisplayedList() {
+        if (mBackList == null) return;
+        List<DownloadInfo> next = mProjection.apply(getEHContext(), mBackList, searchKey);
+        java.util.Set<Long> selected = new java.util.HashSet<>();
+        boolean choice = mRecyclerView != null && mRecyclerView.isInCustomChoice();
+        boolean reordered = mList == null || mList.size() != next.size();
+        if (!reordered) for (int i = 0; i < next.size(); i++) {
+            if (mList.get(i).gid != next.get(i).gid) { reordered = true; break; }
         }
-        mBackList = mList;
-//        filterByCategory();
+        if (choice && reordered) {
+            android.util.SparseBooleanArray checked = mRecyclerView.getCheckedItemPositions();
+            for (int i = 0; i < checked.size(); i++) {
+                int index = positionInList(checked.keyAt(i));
+                if (checked.valueAt(i) && mList != null && index >= 0 && index < mList.size())
+                    selected.add(mList.get(index).gid);
+            }
+            mRecyclerView.outOfCustomChoiceMode();
+        }
+        mList = next;
+        int maxPage = isCanPagination() && next.size() >= getPaginationSize()
+                ? Math.max(1, (next.size() + getPageSize() - 1) / getPageSize()) : 1;
+        mPaginationController.indexPage = Math.min(mPaginationController.indexPage, maxPage);
         updateTitle();
         mPaginationController.updatePaginationIndicator();
-        Settings.putRecentDownloadLabel(mLabel);
-        mPaginationController.queryUnreadSpiderInfo();
+        if (mAdapter != null) mAdapter.notifyDataSetChanged();
+        if (choice && reordered && !selected.isEmpty() && mRecyclerView != null) {
+            int start = positionInList(0);
+            int end = isCanPagination() && next.size() >= getPaginationSize()
+                    ? Math.min(next.size(), start + getPageSize()) : next.size();
+            for (int i = start; i < end; i++) if (selected.contains(next.get(i).gid)) {
+                if (!mRecyclerView.isInCustomChoice()) mRecyclerView.intoCustomChoiceMode();
+                mRecyclerView.toggleItemChecked(i - start);
+            }
+        }
+        updateView();
+    }
+
+    private String groupTitle() {
+        if ("@all".equals(mGroupSelection)) return getString(R.string.download_group_all);
+        if ("@unknown".equals(mGroupSelection)) return getString(R.string.unknown);
+        if ("custom".equals(mGrouping)) return mLabel == null
+                ? getString(R.string.default_download_label_name) : mLabel;
+        int colon = mGroupSelection.indexOf(':');
+        return colon >= 0 ? new DownloadTags.Tag(mGroupSelection.substring(0, colon),
+                mGroupSelection.substring(colon + 1)).getDisplayName(getEHContext()) : mGroupSelection;
     }
 
     @SuppressLint("StringFormatMatches")
     private void updateTitle() {
         try {
             setTitle(getString(R.string.scene_download_title_new,
-                    mLabel != null ? mLabel : getString(R.string.default_download_label_name),
+                    groupTitle(),
                     Integer.toString(mList == null ? 0 : mList.size())));
         } catch (Exception e) {
             Analytics.recordException(e);
             setTitle(getString(R.string.scene_download_title_new,
-                    mLabel != null ? mLabel : getString(R.string.default_download_label_name)));
+                    groupTitle()));
         }
     }
 
@@ -351,6 +456,7 @@ public class DownloadsScene extends ToolbarScene
     @Override
     public View onCreateView3(LayoutInflater inflater,
                               @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        mThumbnailMode = false;
         View view = inflater.inflate(R.layout.scene_download, container, false);
 
         Context context = getEHContext();
@@ -389,6 +495,10 @@ public class DownloadsScene extends ToolbarScene
 
         mGuideHelper.guide();
         mPaginationController.updatePaginationIndicator();
+        mMetadataLoader = new com.hippo.ehviewer.download.DownloadMetadataLoader(context, () -> {
+            if (mAdapter != null && isAdded()) onLocalTagsChanged();
+        });
+        mMetadataLoader.start(new ArrayList<>(mDownloadManager.getAllDownloadInfoList()));
         return view;
     }
 
@@ -575,6 +685,10 @@ public class DownloadsScene extends ToolbarScene
 
     @Override
     public void onDestroyView() {
+        if (mMetadataLoader != null) {
+            mMetadataLoader.stop();
+            mMetadataLoader = null;
+        }
         super.onDestroyView();
 
         mGuideHelper.destroy();
@@ -617,6 +731,16 @@ public class DownloadsScene extends ToolbarScene
 
         int id = item.getItemId();
         switch (id) {
+            case R.id.download_view_details:
+            case R.id.download_view_thumbnails: {
+                mThumbnailMode = id == R.id.download_view_thumbnails;
+                item.setChecked(true);
+                mLayoutManager.setColumnSize(getResources().getDimensionPixelOffset(
+                        mThumbnailMode ? Settings.getThumbSizeResId() : Settings.getDetailSizeResId()));
+                if (mDragDropManager != null) mDragDropManager.cancelDrag();
+                if (mOriginalAdapter != null) mOriginalAdapter.notifyDataSetChanged();
+                return true;
+            }
             case R.id.action_start_all: {
                 Intent intent = new Intent(activity, DownloadService.class);
                 intent.setAction(DownloadService.ACTION_START_ALL);
@@ -871,22 +995,21 @@ public class DownloadsScene extends ToolbarScene
     }
 
     @Override
+    public void onLocalTagsChanged() {
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
+    }
+
+    @Override
     public void onClickSecondaryFab(FabLayout view, FloatingActionButton fab, int position) {
         mBatchActions.onClickSecondaryFab(view, fab, position);
     }
 
     @Override
     public void onAdd(@NonNull DownloadInfo info, @NonNull List<DownloadInfo> list, int position) {
-        if (mList != list) {
-            return;
-        }
-        if (mAdapter != null) {
-            mAdapter.notifyItemInserted(position);
-        }
-        if (downloadLabelDraw != null) {
-            downloadLabelDraw.updateDownloadLabels();
-        }
-        updateView();
+        if (mMetadataLoader != null) mMetadataLoader.enqueue(java.util.Collections.singletonList(info));
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Override
@@ -909,64 +1032,60 @@ public class DownloadsScene extends ToolbarScene
 
     @Override
     public void onUpdate(@NonNull DownloadInfo info, @NonNull List<DownloadInfo> list, LinkedList<DownloadInfo> mWaitList) {
-        if (mList != list && !mList.contains(info)) {
-            return;
-        }
-        int index = mList.indexOf(info);
-        if (index >= 0 && mAdapter != null) {
-            mAdapter.notifyItemChanged(listIndexInPage(index));
+        if (mProjection.hasStateFilter()) {
+            rebuildDisplayedList();
+        } else if (mList != null && mAdapter != null) {
+            int index = mList.indexOf(info);
+            if (index >= 0 && (!isCanPagination() || mList.size() < getPaginationSize()
+                    || index / getPageSize() + 1 == getIndexPage()))
+                mAdapter.notifyItemChanged(listIndexInPage(index));
         }
     }
 
     @SuppressLint("NotifyDataSetChanged")
     @Override
     public void onUpdateAll() {
-        if (mAdapter != null) {
-            mAdapter.notifyDataSetChanged();
-        }
+        rebuildDisplayedList();
     }
 
     @SuppressLint("NotifyDataSetChanged")
     @Override
     public void onReload() {
-        if (mAdapter != null) {
-            mAdapter.notifyDataSetChanged();
-        }
-        updateView();
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Override
     public void onChange() {
-        mLabel = null;
         updateForLabel();
-        updateView();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Override
     public void onRenameLabel(String from, String to) {
-        if (!ObjectUtils.equal(mLabel, from)) {
-            return;
+        String selected = Settings.getDownloadGroupSelection("custom");
+        if (("label:" + from).equals(selected)) {
+            Settings.putDownloadGroupSelection("custom", "label:" + to);
         }
-
-        mLabel = to;
+        if (("label:" + from).equals(mGroupSelection) && "custom".equals(mGrouping)) {
+            mLabel = to;
+            mGroupSelection = "label:" + to;
+            Settings.putRecentDownloadLabel(to);
+        }
         updateForLabel();
-        updateView();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Override
     public void onRemove(@NonNull DownloadInfo info, @NonNull List<DownloadInfo> list, int position) {
-        if (mList != list) {
-            return;
-        }
-        if (mAdapter != null) {
-            mAdapter.notifyItemRemoved(listIndexInPage(position));
-        }
-        updateView();
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Override
     public void onUpdateLabels() {
-        // TODO
+        updateForLabel();
+        if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
     }
 
     @Nullable
@@ -1211,30 +1330,13 @@ public class DownloadsScene extends ToolbarScene
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void updateDownloadLabels(SomethingNeedRefresh somethingNeedRefresh) {
         if (somethingNeedRefresh.isDownloadLabelDrawNeed()) {
-            downloadLabelDraw.updateDownloadLabels();
+            updateForLabel();
+            if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
         }
     }
 
     private void filterByCategory() {
-        if (mBackList == null) {
-            return;
-        }
-        if (mSelectedCategory == EhUtils.ALL_CATEGORY) {
-            mList = new ArrayList<>(mBackList);
-        } else {
-            mList = new ArrayList<>();
-            for (DownloadInfo info : mBackList) {
-                if (info.category == mSelectedCategory) {
-                    mList.add(info);
-                }
-            }
-        }
-        if (mAdapter != null) {
-            mAdapter.notifyDataSetChanged();
-        }
-        updateTitle();
-        mPaginationController.updatePaginationIndicator();
-        updateView();
-        mPaginationController.queryUnreadSpiderInfo();
+        mProjection.setCategory(mSelectedCategory);
+        rebuildDisplayedList();
     }
 }

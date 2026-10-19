@@ -840,6 +840,24 @@ public class Settings {
         putString(KEY_RECENT_DOWNLOAD_LABEL, value);
     }
 
+    public static String getDownloadGrouping() {
+        return com.hippo.ehviewer.download.DownloadTags.getConfig("download_grouping", "custom");
+    }
+
+    public static void putDownloadGrouping(String value) {
+        com.hippo.ehviewer.download.DownloadTags.setConfig("download_grouping", value);
+    }
+
+    public static String getDownloadGroupSelection(String type) {
+        String recent = getRecentDownloadLabel();
+        String fallback = "custom".equals(type) ? (recent == null ? "@default" : "label:" + recent) : "@all";
+        return com.hippo.ehviewer.download.DownloadTags.getConfig("download_group_selection_" + type, fallback);
+    }
+
+    public static void putDownloadGroupSelection(String type, String value) {
+        com.hippo.ehviewer.download.DownloadTags.setConfig("download_group_selection_" + type, value);
+    }
+
     private static final String KEY_HAS_DEFAULT_DOWNLOAD_LABEL = "has_default_download_label";
     private static final boolean DEFAULT_HAS_DOWNLOAD_LABEL = false;
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_group_all">All</string>
+    <string name="download_group_type">Grouping</string>
+    <string name="download_group_artist">Artist</string>
+    <string name="download_group_character">Character</string>
+    <string name="download_group_group">Group</string>
+    <string name="download_reorder_label">Reorder label</string>
+    <string name="download_filter_list">Filter</string>
+    <string name="download_view_mode">View mode</string>
+    <string name="download_view_details">Details</string>
+    <string name="download_view_thumbnails">Thumbnails</string>
+    <string name="download_tag_actions">Labels and local tags</string>
+    <string name="download_local_tags_add">Add local tag</string>
+    <string name="download_local_tags_clear">Clear local tags</string>
+    <string name="download_local_tags_finished_only">Only finished downloads are changed. Unfinished items are skipped.</string>
+    <string name="download_local_tags_clear_message">Clear all local tags from the selected finished downloads? Original gallery tags are kept. Unfinished items are skipped.</string>
+    <string name="download_local_tag_raw_hint">Raw tag, e.g. artist:techi</string>
+    <string name="download_local_tag_type_mismatch">The namespace must match the selected type.</string>
+    <string-array name="download_group_types">
+        <item>@string/download_labels</item>
+        <item>@string/download_group_artist</item>
+        <item>@string/download_group_character</item>
+        <item>@string/download_group_group</item>
+    </string-array>
+    <string-array name="download_metadata_types">
+        <item>@string/download_group_artist</item>
+        <item>@string/download_group_character</item>
+        <item>@string/download_group_group</item>
+    </string-array>
+</resources>

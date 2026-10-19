@@ -1,0 +1,111 @@
+name: Publish download fix 2.0.2.5.6
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+    branches: [BiLi_PC_Gamer]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Build run for commit 8e12aaf
+        required: true
+        default: '39281732600'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-download-fix-2.0.2.5.6
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_sha == '8e12aaf41f040b0143467d6fa58b37bf1c61d992')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: kelaner/Ehviewer_CN_SXJ
+      EXPECTED_SHA: 8e12aaf41f040b0143467d6fa58b37bf1c61d992
+      BUILD_RUN: ${{ inputs.build_run_id || github.event.workflow_run.id }}
+    steps:
+      - name: Verify the successful build and exact release target
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > "$RUNNER_TEMP/build-run.json"
+          gh api "repos/$GH_REPO/releases/417481998" > "$RUNNER_TEMP/release.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          run = json.loads((root / 'build-run.json').read_text())
+          release = json.loads((root / 'release.json').read_text())
+          assert run['head_sha'] == os.environ['EXPECTED_SHA'], 'Unexpected source commit'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success', 'Build did not pass'
+          assert run['path'] == '.github/workflows/build.yml', 'Unexpected workflow'
+          assert run['repository']['full_name'] == os.environ['GH_REPO'], 'Unexpected repository'
+          assert release['tag_name'] == 'v2.0.2.5.6', 'Unexpected release'
+          assert release['target_commitish'] == os.environ['EXPECTED_SHA'], 'Unexpected release target'
+          PY
+
+      - name: Checkout the tested source and report
+        uses: actions/checkout@v4
+        with:
+          ref: 8e12aaf41f040b0143467d6fa58b37bf1c61d992
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;36.0.0'
+
+      - name: Download and verify the signed universal APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fix-apk" "$RUNNER_TEMP/fix-release"
+          gh run download "$BUILD_RUN" -n Ehviewer-Release -D "$RUNNER_TEMP/fix-apk"
+          mapfile -t APKS < <(find "$RUNNER_TEMP/fix-apk" -name '*.apk' -type f)
+          test "${#APKS[@]}" -eq 1
+          APK="${APKS[0]}"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          cat "$RUNNER_TEMP/apk-signature.txt"
+          grep -F 'certificate SHA-256 digest: 8f75d13aef754b495a32d2c2951dd0cb927058409dcc0173145da019c4fd0255' "$RUNNER_TEMP/apk-signature.txt"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > "$RUNNER_TEMP/apk-badging.txt"
+          grep -E "^package: name='com.kelaner.ehviewer' versionCode='117' versionName='2.0.2.5.6'" "$RUNNER_TEMP/apk-badging.txt"
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -Z1 "$APK" | grep "^lib/$ABI/libehviewer.so$" > /dev/null
+          done
+          cp "$APK" "$RUNNER_TEMP/fix-release/Ehviewer-2.0.2.5.6.apk"
+          cp docs/download-cover-investigation-2.0.2.5.6.md "$RUNNER_TEMP/fix-release/"
+          cd "$RUNNER_TEMP/fix-release"
+          sha256sum Ehviewer-2.0.2.5.6.apk > SHA256.txt
+
+      - name: Upload assets and publish the existing draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload v2.0.2.5.6 \
+            "$RUNNER_TEMP/fix-release/Ehviewer-2.0.2.5.6.apk" \
+            "$RUNNER_TEMP/fix-release/SHA256.txt" \
+            "$RUNNER_TEMP/fix-release/download-cover-investigation-2.0.2.5.6.md" --clobber
+          gh api "repos/$GH_REPO/releases/417481998" > "$RUNNER_TEMP/uploaded-release.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          release = json.loads((Path(os.environ['RUNNER_TEMP']) / 'uploaded-release.json').read_text())
+          names = {asset['name'] for asset in release['assets'] if asset['state'] == 'uploaded' and asset['size'] > 0}
+          expected = {'Ehviewer-2.0.2.5.6.apk', 'SHA256.txt', 'download-cover-investigation-2.0.2.5.6.md'}
+          assert expected <= names, 'Release assets are incomplete'
+          PY
+          gh api --method PATCH "repos/$GH_REPO/releases/417481998" -F draft=false -f make_latest=true

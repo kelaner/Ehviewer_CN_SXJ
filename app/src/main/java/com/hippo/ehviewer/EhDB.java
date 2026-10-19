@@ -33,6 +33,7 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.hippo.ehviewer.client.data.GalleryDetail;
 import com.hippo.ehviewer.client.data.GalleryInfo;
 import com.hippo.ehviewer.client.data.ListUrlBuilder;
 import com.hippo.ehviewer.dao.BlackList;
@@ -56,6 +57,7 @@ import com.hippo.ehviewer.dao.LocalFavoritesDao;
 import com.hippo.ehviewer.dao.QuickSearch;
 import com.hippo.ehviewer.dao.QuickSearchDao;
 import com.hippo.ehviewer.download.DownloadManager;
+import com.hippo.ehviewer.download.DownloadMetadata;
 import com.hippo.ehviewer.download.DownloadTags;
 import com.hippo.ehviewer.preference.SettingsBackup;
 import com.hippo.util.ExceptionUtils;
@@ -222,6 +224,7 @@ public class EhDB {
 
         sDaoSession = daoMaster.newSession();
         DownloadTags.initialize(sDaoSession.getDatabase());
+        DownloadMetadata.initialize(sDaoSession.getDatabase());
         MAX_HISTORY_COUNT = Settings.getHistoryInfoSize();
     }
 
@@ -439,6 +442,7 @@ public class EhDB {
         }
         // Fix state
         for (DownloadInfo info : list) {
+            DownloadMetadata.restore(sDaoSession.getDatabase(), info);
             if (info.state == DownloadInfo.STATE_WAIT || info.state == DownloadInfo.STATE_DOWNLOAD) {
                 info.state = DownloadInfo.STATE_NONE;
             }
@@ -471,20 +475,57 @@ public class EhDB {
     // Insert or update
     public static synchronized void putDownloadInfo(DownloadInfo downloadInfo) {
         DownloadsDao dao = sDaoSession.getDownloadsDao();
-        if (null != dao.load(downloadInfo.gid)) {
-            // Update
-            dao.update(downloadInfo);
-        } else {
-            // Insert
-            dao.insert(downloadInfo);
+        boolean inserted = dao.load(downloadInfo.gid) == null;
+        sDaoSession.runInTx(() -> {
+            if (inserted) dao.insert(downloadInfo);
+            else dao.update(downloadInfo);
+            GalleryInfo metadata = new GalleryInfo();
+            metadata.gid = downloadInfo.gid;
+            DownloadMetadata.apply(metadata, downloadInfo);
+            DownloadMetadata.save(sDaoSession.getDatabase(), metadata);
+        });
+        if (inserted) {
             DownloadTags.invalidate(downloadInfo.gid);
             DownloadTags.onDownloadsChanged();
         }
     }
 
+    /** Commit metadata before publishing it to the shared download object. */
+    public static synchronized void updateDownloadMetadata(DownloadInfo info, GalleryDetail detail) {
+        if (info.gid != detail.gid) throw new IllegalArgumentException("Gallery ID mismatch");
+        GalleryInfo metadata = DownloadMetadata.fromDetail(info, detail);
+        org.greenrobot.greendao.database.Database database = sDaoSession.getDatabase();
+        // DownloadTags takes its monitor before starting transactions elsewhere as well.
+        synchronized (DownloadTags.class) {
+            database.beginTransaction();
+            try {
+                try (Cursor cursor = database.rawQuery("SELECT 1 FROM DOWNLOADS WHERE GID=?",
+                        new String[]{Long.toString(info.gid)})) {
+                    if (!cursor.moveToFirst()) throw new IllegalStateException("Download was removed");
+                }
+                database.execSQL("UPDATE DOWNLOADS SET TOKEN=?,TITLE=?,TITLE_JPN=?,THUMB=?,CATEGORY=?,POSTED=?,UPLOADER=?,RATING=?,SIMPLE_LANGUAGE=? WHERE GID=?",
+                        new Object[]{metadata.token, metadata.title, metadata.titleJpn, metadata.thumb,
+                                metadata.category, metadata.posted, metadata.uploader, metadata.rating,
+                                metadata.simpleLanguage, metadata.gid});
+                DownloadMetadata.save(database, metadata);
+                DownloadTags.cacheRawTags(detail);
+                database.setTransactionSuccessful();
+            } finally {
+                database.endTransaction();
+                DownloadTags.invalidate(info.gid);
+            }
+        }
+        DownloadMetadata.apply(info, metadata);
+    }
+
     public static synchronized void removeDownloadInfo(long gid) {
-        sDaoSession.getDownloadsDao().deleteByKey(gid);
-        DownloadTags.remove(gid);
+        synchronized (DownloadTags.class) {
+            sDaoSession.runInTx(() -> {
+                sDaoSession.getDownloadsDao().deleteByKey(gid);
+                DownloadTags.remove(gid);
+                DownloadMetadata.remove(sDaoSession.getDatabase(), gid);
+            });
+        }
     }
 
     @Nullable
@@ -962,6 +1003,7 @@ public class EhDB {
                 if (!copyDao(sDaoSession.getBlackListDao(), exportSession.getBlackListDao()))
                     return false;
                 DownloadTags.copy(sDaoSession.getDatabase(), exportSession.getDatabase());
+                DownloadMetadata.copy(sDaoSession.getDatabase(), exportSession.getDatabase());
                 SettingsBackup.exportSettings(context, exportSession.getDatabase());
             }
 
@@ -1016,6 +1058,10 @@ public class EhDB {
             manager.addDownloadLabel(downloadLabelList);
             // Downloads
             List<DownloadInfo> downloadInfoList = session.getDownloadsDao().queryBuilder().list();
+            DownloadMetadata.initialize(session.getDatabase());
+            for (DownloadInfo info : downloadInfoList) {
+                DownloadMetadata.restore(session.getDatabase(), info);
+            }
             manager.addDownload(downloadInfoList);
 
             sendImportProgress(handler, 50);
@@ -1094,6 +1140,7 @@ public class EhDB {
             }
 
             DownloadTags.copy(session.getDatabase(), sDaoSession.getDatabase());
+            DownloadMetadata.copy(session.getDatabase(), sDaoSession.getDatabase());
             SettingsBackup.importSettings(context, session.getDatabase());
             return null;
         } catch (Throwable e) {

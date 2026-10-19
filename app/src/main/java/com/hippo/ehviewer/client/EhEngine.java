@@ -359,9 +359,17 @@ public class EhEngine {
 //    https://e-hentai.org/g/2914213/fc8bce61d9/
     public static GalleryDetail getGalleryDetail(@Nullable EhClient.Task task, OkHttpClient okHttpClient,
                                                  String url) throws Throwable {
+        return getGalleryDetail(task, okHttpClient, url, true);
+    }
+
+    /** Refresh defers tag persistence until the complete replacement is ready. */
+    public static GalleryDetail getGalleryDetail(@Nullable EhClient.Task task, OkHttpClient okHttpClient,
+                                                 String url, boolean persistTags) throws Throwable {
         String referer = EhUrl.getReferer();
         Log.d(TAG, url);
-        Request request = new EhRequestBuilder(url, referer).build();
+        EhRequestBuilder builder = new EhRequestBuilder(url, referer);
+        if (!persistTags) builder.header("Cache-Control", "no-cache");
+        Request request = builder.build();
         Call call = okHttpClient.newCall(request);
 
         // Put call
@@ -383,7 +391,7 @@ public class EhEngine {
                 EhApplication.getInstance().showEventPane(html);
             }
             GalleryDetail detail = GalleryDetailParser.parse(body);
-            com.hippo.ehviewer.download.DownloadTags.cacheRawTags(detail);
+            if (persistTags) com.hippo.ehviewer.download.DownloadTags.cacheRawTags(detail);
             return detail;
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);

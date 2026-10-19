@@ -181,6 +181,10 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
             val pos = mCallback.positionInList(position)
             val info = list.get(pos)
 
+            if (holder.itemViewType == 1) {
+                // A recycled cover must not supply the next item's measured aspect ratio.
+                holder.thumb.setImageDrawable(null)
+            }
             (holder.thumb as? TileThumb)?.setThumbSize(info.thumbWidth, info.thumbHeight)
 
             var title = getSuitableTitle(info)

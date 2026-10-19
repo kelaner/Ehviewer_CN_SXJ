@@ -97,6 +97,21 @@ public class DownloadCoverTest {
         assertArrayEquals(Files.readAllBytes(refreshed.toPath()), cover());
     }
 
+    @Test public void failedMetadataCommitRestoresOldCover() throws Exception {
+        DownloadCover.replace(context, info, image("original.png", Color.RED));
+        byte[] expected = cover();
+        try {
+            DownloadCover.replace(context, info, image("replacement.png", Color.BLUE), () -> {
+                throw new IllegalStateException("Storage transaction failed");
+            });
+            fail("A failed metadata transaction must fail the replacement");
+        } catch (IllegalStateException expectedFailure) {
+            assertArrayEquals(expected, cover());
+        }
+        assertTrue(new File(directory, ".thumb").isFile());
+        org.junit.Assert.assertEquals(1, directory.list().length);
+    }
+
     @Test public void consecutiveReplacementsLeaveLatestUsableImage() throws Exception {
         for (int color : new int[]{Color.RED, Color.GREEN, Color.BLUE}) {
             File source = image("cover-" + color + ".png", color);

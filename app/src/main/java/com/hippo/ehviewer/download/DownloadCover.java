@@ -31,13 +31,18 @@ public final class DownloadCover {
     }
 
     public static synchronized void replace(Context context, DownloadInfo info, File source) throws IOException {
+        replace(context, info, source, () -> { });
+    }
+
+    /** Retain the previous cover until the metadata transaction has committed too. */
+    public static synchronized void replace(Context context, DownloadInfo info, File source, Runnable commit) throws IOException {
         validate(context, source);
         UniFile directory = SpiderDen.getGalleryDownloadDir(info);
         if (directory == null || !directory.isDirectory()) throw new IOException(context.getString(R.string.download_refresh_storage_error));
         String suffix = UUID.randomUUID().toString();
         UniFile staged = directory.createFile(".thumb-new-" + suffix);
         if (staged == null) throw new IOException(context.getString(R.string.download_refresh_storage_error));
-        boolean installed = false;
+        boolean moved = false;
         try {
             try (InputStream input = new FileInputStream(source); OutputStream output = staged.openOutputStream()) {
                 byte[] buffer = new byte[8192];
@@ -52,11 +57,22 @@ public final class DownloadCover {
                     throw new IOException("Cover replacement failed; original retained as .thumb-backup-" + suffix);
                 throw new IOException(context.getString(R.string.download_refresh_storage_error));
             }
-            installed = true;
+            moved = true;
+            try {
+                EhApplication.getConaco(context).getBeerBelly().remove(EhCacheKeyFactory.getThumbKey(info.gid));
+                commit.run();
+            } catch (RuntimeException | Error error) {
+                UniFile replacement = directory.findFile(".thumb");
+                if (replacement == null || !replacement.delete()
+                        || (current != null && !current.renameTo(".thumb"))) {
+                    throw new IOException("Metadata commit failed; original cover retained as .thumb-backup-" + suffix, error);
+                }
+                throw error;
+            }
             if (current != null) current.delete();
-            EhApplication.getConaco(context).getBeerBelly().remove(EhCacheKeyFactory.getThumbKey(info.gid));
         } finally {
-            if (!installed) staged.delete();
+            // After rename, staged points at .thumb, which may already be the restored original.
+            if (!moved) staged.delete();
         }
     }
 

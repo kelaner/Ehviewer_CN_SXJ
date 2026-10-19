@@ -159,7 +159,8 @@ public class EhClient {
                     case METHOD_GET_GALLERY_LIST:
                         return EhEngine.getGalleryList(this, mOkHttpClient, (String) params[0], (int) params[1]);
                     case METHOD_GET_GALLERY_DETAIL:
-                        return EhEngine.getGalleryDetail(this, mOkHttpClient, (String) params[0]);
+                        return EhEngine.getGalleryDetail(this, mOkHttpClient, (String) params[0],
+                                params.length < 2 || (Boolean) params[1]);
                     case METHOD_GET_PREVIEW_SET:
                         return EhEngine.getPreviewSet(this, mOkHttpClient, (String) params[0]);
                     case METHOD_GET_RATE_GALLERY:

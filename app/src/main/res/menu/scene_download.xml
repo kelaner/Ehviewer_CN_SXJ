@@ -194,16 +194,6 @@
       app:showAsAction="never"/>
 
     <item
-        android:id="@+id/action_refresh_download_tags"
-        android:title="@string/download_refresh_tags"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/action_refresh_download_covers"
-        android:title="@string/download_refresh_covers"
-        app:showAsAction="never"/>
-
-    <item
         android:id="@+id/import_local_archive"
         android:title="@string/import_local_archive"
         app:showAsAction="never"/>

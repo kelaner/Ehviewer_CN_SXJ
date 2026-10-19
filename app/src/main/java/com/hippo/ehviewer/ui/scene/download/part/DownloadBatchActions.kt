@@ -74,6 +74,8 @@ class DownloadBatchActions(private val mHost: Host) {
         fun getString(resId: Int, vararg formatArgs: Any?): String?
 
         fun onLocalTagsChanged()
+
+        fun refreshDownloadMetadata(items: List<DownloadInfo>)
     }
 
     fun onClickSecondaryFab(view: FabLayout?, fab: FloatingActionButton, position: Int) {
@@ -92,7 +94,7 @@ class DownloadBatchActions(private val mHost: Host) {
             var gidList: LongList? = null
             var downloadInfoList: MutableList<DownloadInfo?>? = null
             val collectGid = position == 1 || position == 2 || position == 3 // Start, Stop, Delete
-            val collectDownloadInfo = position == 3 || position == 4 // Delete or Move
+            val collectDownloadInfo = position == 3 || position == 4 || position == 5 // Delete, Move or Refresh
             if (collectGid) {
                 gidList = LongList()
             }
@@ -201,7 +203,9 @@ class DownloadBatchActions(private val mHost: Host) {
                         .show()
                 }
 
-                5 -> {
+                5 -> mHost.refreshDownloadMetadata(downloadInfoList!!.filterNotNull())
+
+                6 -> {
                     if (mHost.list == null || mHost.list!!.isEmpty()) {
                         return
                     }
@@ -209,7 +213,7 @@ class DownloadBatchActions(private val mHost: Host) {
                     viewRandom()
                 }
 
-                6 -> setDragEnable(fab)
+                7 -> setDragEnable(fab)
             }
         }
     }

@@ -704,7 +704,7 @@ public class DownloadsScene extends ToolbarScene
         mFabLayout.setOnExpandListener(this);
         mActionFabDrawable = new AddDeleteDrawable(context, resources.getColor(R.color.primary_drawable_dark, null));
         mFabLayout.getPrimaryFab().setImageDrawable(mActionFabDrawable);
-        FloatingActionButton fab = mFabLayout.getSecondaryFabAt(6);
+        FloatingActionButton fab = mFabLayout.getSecondaryFabAt(7);
         if (DRAG_ENABLE) {
             fab.setImageDrawable(ResourcesCompat.getDrawable(getResources(), R.drawable.v_mobile_hand_left_x24, context.getTheme()));
         } else {
@@ -789,22 +789,6 @@ public class DownloadsScene extends ToolbarScene
                 if (null != mDownloadManager) {
                     mDownloadManager.stopAllDownload();
                 }
-                return true;
-            }
-            case R.id.action_refresh_download_tags:
-            case R.id.action_refresh_download_covers: {
-                if (mDownloadManager == null) return false;
-                if (mRefreshDialog != null) mRefreshDialog.stop();
-                mRefreshDialog = new com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog(
-                        activity, new ArrayList<>(mDownloadManager.getAllDownloadInfoList()),
-                        id == R.id.action_refresh_download_tags
-                                ? com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.TAGS
-                                : com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.COVERS,
-                        () -> {
-                            updateForLabel();
-                            if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
-                        });
-                mRefreshDialog.start();
                 return true;
             }
             case R.id.action_reset_reading_progress: {
@@ -1055,6 +1039,22 @@ public class DownloadsScene extends ToolbarScene
     public void onLocalTagsChanged() {
         updateForLabel();
         if (downloadLabelDraw != null) downloadLabelDraw.updateDownloadLabels();
+    }
+
+    @Override
+    public void refreshDownloadMetadata(List<? extends DownloadInfo> items) {
+        Activity activity = getActivity2();
+        if (activity == null) return;
+        if (items.isEmpty()) {
+            Toast.makeText(activity, R.string.download_refresh_no_items, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (mRefreshDialog != null) mRefreshDialog.stop();
+        mRefreshDialog = new com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog(
+                activity, new ArrayList<>(items),
+                com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog.Mode.METADATA,
+                this::onLocalTagsChanged);
+        mRefreshDialog.start();
     }
 
     @Override

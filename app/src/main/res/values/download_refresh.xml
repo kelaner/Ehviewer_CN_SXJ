@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="download_refresh_metadata">刷新</string>
+    <string name="download_refresh_invalid_metadata">画廊信息不完整或源链接不匹配，已保留原数据</string>
     <string name="download_refresh_tags">联网刷新标签</string>
     <string name="download_refresh_covers">联网刷新封面</string>
     <string name="download_reload_cover">刷新封面</string>

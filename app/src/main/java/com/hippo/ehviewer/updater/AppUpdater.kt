@@ -2,6 +2,7 @@ package com.hippo.ehviewer.updater
 
 import android.app.Activity
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -15,9 +16,9 @@ import com.hippo.ehviewer.EhApplication
 import com.hippo.ehviewer.R
 import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.ui.dialog.UpdateDialog
+import com.hippo.ehviewer.updater.GitHubRelease.Companion.compareVersions
 import com.hippo.lib.yorozuya.FileUtils
 import com.hippo.lib.yorozuya.IOUtils
-import com.hippo.util.AppHelper.Companion.compareVersion
 import com.hippo.util.ExceptionUtils
 import com.hippo.util.IoThreadPoolExecutor
 import okhttp3.OkHttpClient
@@ -50,7 +51,6 @@ class AppUpdater(private val name: String, source: BufferedSource) {
         private const val TAG = "AppUpdater"
 
         const val VERSION: String = "version"
-        const val VERSION_CODE: String = "versionCode"
         const val FILE_DOWNLOAD_URL: String = "fileDownloadUrl"
         const val MUST_UPDATE: String = "mustUpdate"
         const val UPDATE_CONTENT: String = "updateContent"
@@ -138,10 +138,33 @@ class AppUpdater(private val name: String, source: BufferedSource) {
                         return@execute
                     }
 
+                    val tempUpdateData = try {
+                        val release = GitHubRelease.parse(
+                            JSON.parseObject(FileUtils.read(tempDataFile))
+                                ?: throw JSONException("Empty GitHub release"),
+                            Build.SUPPORTED_ABIS.toList()
+                        )
+                        JSONObject().apply {
+                            put(VERSION, release.version)
+                            put(MUST_UPDATE, false)
+                            put(UPDATE_CONTENT, JSONObject().apply {
+                                put(TITLE, release.title)
+                                put(CONTENT, release.notes)
+                                put(FILE_DOWNLOAD_URL, release.downloadUrl)
+                            })
+                        }
+                    } catch (e: JSONException) {
+                        Analytics.recordException(e)
+                        FileUtils.delete(tempDataFile)
+                        if (manualChecking) {
+                            UpdateDialog(activity).showCheckFailDialog()
+                        }
+                        return@execute
+                    }
+                    // Cache the normalized dialog data rather than the GitHub response.
+                    tempDataFile.writeText(tempUpdateData.toJSONString())
+
                     val needUpdate: Boolean
-                    // 使用FastJSON的parseObject方法解析JSON内容
-                    val tempUpdateData =
-                        JSON.parseObject(FileUtils.read(tempDataFile))
 
                     // Check new data
                     needUpdate = if (instance != null) {
@@ -179,6 +202,11 @@ class AppUpdater(private val name: String, source: BufferedSource) {
                     }
                     UpdateDialog(activity).showUpdateDialog(tempUpdateData)
                     Settings.putUpdateTime(Date().time)
+                } catch (e: IOException) {
+                    Analytics.recordException(e)
+                    if (manualChecking) {
+                        UpdateDialog(activity).showCheckFailDialog()
+                    }
                 } finally {
                     lock.unlock()
                 }
@@ -191,31 +219,13 @@ class AppUpdater(private val name: String, source: BufferedSource) {
             manualChecking: Boolean
         ): Boolean {
             try {
-                val currentVersion = BuildConfig.VERSION_NAME
-                val currentVersionCode = BuildConfig.VERSION_CODE
-                var updateResult: Int
-                if (updateData != null) {
-                    val version1 = updateData.getString(VERSION) ?: "0.0.0"
-                    val version2 = tempUpdateData.getString(VERSION) ?: "0.0.0"
-                    updateResult = compareVersion(version1, version2)
-                    if (updateResult < 0) {
-                        return true
-                    } else if (updateResult == 0) {
-                        if (updateData.getInteger(VERSION_CODE) < tempUpdateData.getInteger(
-                                VERSION_CODE
-                            )
-                        ) {
-                            return true
-                        }
-                    }
-                    if (!manualChecking) {
-                        return false
-                    }
+                val latestVersion = tempUpdateData.getString(VERSION)
+                if (compareVersions(BuildConfig.VERSION_NAME, latestVersion) >= 0) {
+                    return false
                 }
-                updateResult = compareVersion(currentVersion, tempUpdateData.getString(VERSION))
-                return if (updateResult < 0) {
-                    true
-                } else currentVersionCode < tempUpdateData.getInteger(VERSION_CODE)
+                // A cached notification must never make an older release an update.
+                return manualChecking || updateData == null ||
+                    compareVersions(updateData.getString(VERSION), latestVersion) < 0
             } catch (e: JSONException) {
                 Log.e(TAG, e.message, e)
                 Analytics.recordException(e)

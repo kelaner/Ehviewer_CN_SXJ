@@ -33,7 +33,7 @@
         android:key="latest_release"
         android:title="@string/settings_about_latest_release"
         app:allowDividerAbove="true"
-        app:url="https://github.com/xiaojieonly/Ehviewer_CN_SXJ/releases" />
+        app:url="https://github.com/kelaner/Ehviewer_CN_SXJ/releases" />
 
     <com.hippo.preference.UrlPreference
         android:ellipsize="end"

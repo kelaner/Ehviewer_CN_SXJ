@@ -220,6 +220,7 @@ public class DownloadInfo extends GalleryInfo {
 	}
 
 	public DownloadInfo(GalleryInfo galleryInfo) {
+		this.pages = galleryInfo.pages;
 		this.gid = galleryInfo.gid;
 		this.token = galleryInfo.token;
 		this.title = galleryInfo.title;
@@ -234,6 +235,7 @@ public class DownloadInfo extends GalleryInfo {
 	}
 
 	public void updateInfo(GalleryInfo galleryInfo) {
+		if (galleryInfo.pages > 0) this.pages = galleryInfo.pages;
 		this.token = galleryInfo.token;
 		this.title = galleryInfo.title;
 		this.titleJpn = galleryInfo.titleJpn;

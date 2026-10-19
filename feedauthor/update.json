@@ -1,15 +1,15 @@
 {
-  "version": "2.0.2.5.1",
-  "versionCode": 112,
+  "version": "2.0.2.5.3",
+  "versionCode": 114,
   "mustUpdate": false,
   "updateContent": {
-    "fileDownloadUrl": "https://github.com/kelaner/Ehviewer_CN_SXJ/releases/tag/v2.0.2.5.1",
-    "title": "新版发布 2.0.2.5.1",
+    "fileDownloadUrl": "https://github.com/kelaner/Ehviewer_CN_SXJ/releases/download/v2.0.2.5.3/Ehviewer-2.0.2.5.3.apk",
+    "title": "新版发布 2.0.2.5.3",
     "content": [
-      "修复下载列表删除后排序与过滤刷新，支持标签搜索和视图切换",
-      "新增艺术家、角色、团队分组及已完成下载的本地标签批量管理",
-      "调整下载抽屉标签交互，保留自定义分组与旧版备份兼容",
-      "更换应用包名以支持与旧版同时安装，更新地址切换至本项目"
+      "修复重启后页数排序失效，补全按页数升序和按页数降序文案",
+      "恢复优化前的文件大小递归扫描及升降序排序",
+      "更新检测改为读取本仓库最新 GitHub Release，修复多段版本比较和 APK 下载链接",
+      "更新设置中的版本发布地址，保留旧版客户端更新提示兼容"
     ]
   }
 }

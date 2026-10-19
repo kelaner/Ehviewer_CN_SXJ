@@ -42,6 +42,7 @@ jobs:
             --tests com.hippo.ehviewer.client.EhTagDatabaseTest \
             --tests com.hippo.unifile.UniFileSizeTest \
             --tests com.hippo.ehviewer.download.DownloadFileSizesTest \
+            --tests com.hippo.ehviewer.updater.GitHubReleaseTest \
             --tests com.hippo.ehviewer.download.DownloadCoverTest \
             --tests com.hippo.ehviewer.preference.SettingsBackupTest \
             --stacktrace

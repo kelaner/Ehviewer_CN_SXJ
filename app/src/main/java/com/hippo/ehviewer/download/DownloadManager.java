@@ -1212,6 +1212,7 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
                         Log.e(TAG, "Current task is null, but it should not be");
                     } else {
                         info.total = mPages;
+                        info.pages = mPages;
                         List<DownloadInfo> list = getInfoListForLabel(info.label);
                         if (list != null) {
                             for (DownloadInfoListener l : mDownloadInfoListeners) {

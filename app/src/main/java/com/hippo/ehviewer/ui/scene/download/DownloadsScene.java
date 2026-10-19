@@ -156,7 +156,7 @@ public class DownloadsScene extends ToolbarScene
     private boolean mThumbnailMode;
     private com.hippo.ehviewer.download.DownloadMetadataLoader mMetadataLoader;
     private com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog mRefreshDialog;
-    private boolean mFileSizeScanRunning;
+    private boolean mPageCountScanRunning;
 
     public String getGrouping() { return mGrouping; }
     public String getGroupSelection() { return mGroupSelection; }
@@ -178,21 +178,32 @@ public class DownloadsScene extends ToolbarScene
     @Override
     public void selectCondition(int id) {
         mProjection.select(id);
+        updateForLabel();
         if (id == R.id.sort_by_file_size_asc || id == R.id.sort_by_file_size_desc) {
-            if (mDownloadManager == null || mFileSizeScanRunning) return;
-            mFileSizeScanRunning = true;
+            if (mDownloadManager == null) return;
+            List<DownloadInfo> snapshot = new ArrayList<>(mDownloadManager.getAllDownloadInfoList());
+            com.hippo.util.IoThreadPoolExecutor.Companion.getInstance().execute(() -> {
+                DownloadListProjection.loadFileSizes(snapshot);
+                runOnUiThread(() -> {
+                    if (mAdapter != null) updateForLabel();
+                });
+            });
+        } else if (id == R.id.sort_by_pages_asc || id == R.id.sort_by_pages_desc) {
+            if (mDownloadManager == null || mPageCountScanRunning) return;
+            mPageCountScanRunning = true;
+            Context context = getEHContext();
             List<DownloadInfo> snapshot = new ArrayList<>(mDownloadManager.getAllDownloadInfoList());
             com.hippo.util.IoThreadPoolExecutor.Companion.getInstance().execute(() -> {
                 try {
-                    DownloadListProjection.loadFileSizes(snapshot);
+                    DownloadListProjection.loadPageCounts(context, snapshot);
                 } finally {
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                        mFileSizeScanRunning = false;
+                        mPageCountScanRunning = false;
                         if (mAdapter != null) updateForLabel();
                     });
                 }
             });
-        } else updateForLabel();
+        }
     }
 
     private final DownloadArchiveImporter mArchiveImporter = new DownloadArchiveImporter(this);

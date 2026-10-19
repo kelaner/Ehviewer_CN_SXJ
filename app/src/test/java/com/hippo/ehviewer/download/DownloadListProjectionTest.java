@@ -46,8 +46,8 @@ public class DownloadListProjectionTest {
     public void pageSortingKeepsUnknownPagesLastInBothDirections() {
         DownloadListProjection view = new DownloadListProjection();
         DownloadInfo shortGallery = item(10, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
-        shortGallery.total = 12;
-        shortGallery.pages = 200; // The download UI's known total takes priority.
+        shortGallery.total = 200; // Persisted metadata replaces stale runtime totals.
+        shortGallery.pages = 12;
         shortGallery.finished = 1;
         DownloadInfo longGallery = item(20, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
         longGallery.total = -1;
@@ -60,6 +60,28 @@ public class DownloadListProjectionTest {
         view.select(R.id.sort_by_pages_desc);
         assertEquals(Arrays.asList(20L, 10L, 30L), ids(view.apply(null, source, null)));
         assertEquals(Arrays.asList(30L, 20L, 10L), ids(source));
+    }
+
+    @Test
+    public void activeDownloadUsesLiveTotalAndGalleryMetadataIsCopied() {
+        com.hippo.ehviewer.client.data.GalleryInfo gallery =
+                new com.hippo.ehviewer.client.data.GalleryInfo();
+        gallery.pages = 37;
+        DownloadInfo copied = new DownloadInfo(gallery);
+        assertEquals(37, copied.pages);
+        gallery.pages = 0;
+        copied.updateInfo(gallery);
+        assertEquals(37, copied.pages);
+        DownloadListProjection view = new DownloadListProjection();
+        DownloadInfo active = item(10, DownloadInfo.STATE_DOWNLOAD, EhConfig.MANGA);
+        active.total = 12;
+        active.pages = 200;
+        DownloadInfo fallback = item(20, DownloadInfo.STATE_FINISH, EhConfig.MANGA);
+        fallback.total = 80;
+        view.select(R.id.sort_by_pages_asc);
+        assertEquals(Arrays.asList(10L, 20L), ids(view.apply(null, Arrays.asList(fallback, active), null)));
+        view.select(R.id.sort_by_pages_desc);
+        assertEquals(Arrays.asList(20L, 10L), ids(view.apply(null, Arrays.asList(active, fallback), null)));
     }
 
     @Test

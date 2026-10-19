@@ -2,8 +2,8 @@
 <resources>
     <string name="download_label_menu">标签菜单</string>
     <string name="download_sort_random">随机排序</string>
-    <string name="download_sort_pages_asc">页数升序</string>
-    <string name="download_sort_pages_desc">页数降序</string>
+    <string name="download_sort_pages_asc">按页数升序</string>
+    <string name="download_sort_pages_desc">按页数降序</string>
     <string name="download_local_tag_prefix_hint">原始标签（如 a:name、character:name；无前缀默认为 artist）</string>
     <string name="download_local_tag_invalid_prefix">请输入已有标签命名空间或缩写及非空标签，如 a:name、f:name</string>
     <string name="download_local_tag_description">本地标签：%1$s</string>

@@ -1,18 +1,18 @@
 package com.hippo.ehviewer.ui.scene.download.part;
 
 import android.content.Context;
-import android.database.Cursor;
 import android.net.Uri;
-import android.provider.OpenableColumns;
-
-import com.hippo.ehviewer.EhApplication;
 import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.client.EhConfig;
 import com.hippo.ehviewer.client.EhUtils;
 import com.hippo.ehviewer.dao.DownloadInfo;
 import com.hippo.ehviewer.download.DownloadTags;
+import com.hippo.ehviewer.gallery.A7ZipArchive;
 import com.hippo.ehviewer.spider.SpiderDen;
+import com.hippo.ehviewer.spider.SpiderInfo;
+import com.hippo.ehviewer.spider.SpiderQueen;
 import com.hippo.unifile.UniFile;
+import com.hippo.unifile.UniRandomAccessFile;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -83,8 +83,8 @@ public final class DownloadListProjection {
             else if (sort == R.id.sort_by_rating_asc || sort == R.id.sort_by_rating_desc)
                 compared = Float.compare(left.rating, right.rating);
             else if (sort == R.id.sort_by_pages_asc || sort == R.id.sort_by_pages_desc) {
-                int leftPages = left.total > 0 ? left.total : left.pages;
-                int rightPages = right.total > 0 ? right.total : right.pages;
+                int leftPages = pageCount(left);
+                int rightPages = pageCount(right);
                 if (leftPages <= 0) return rightPages <= 0 ? 0 : 1;
                 if (rightPages <= 0) return -1;
                 compared = Integer.compare(leftPages, rightPages);
@@ -106,6 +106,45 @@ public final class DownloadListProjection {
         return result;
     }
 
+    private static int pageCount(DownloadInfo info) {
+        if ((info.state == DownloadInfo.STATE_DOWNLOAD || info.state == DownloadInfo.STATE_WAIT)
+                && info.total > 0) return info.total;
+        return info.pages > 0 ? info.pages : info.total;
+    }
+
+    /** Read persisted page counts for the whole list before sorting, including off-screen items. */
+    public static void loadPageCounts(Context context, List<DownloadInfo> source) {
+        for (DownloadInfo info : source) {
+            try {
+                int pages = 0;
+                if (info.archiveUri != null && !info.archiveUri.isEmpty()
+                        && !DownloadAlbumImporter.Companion.isLocalAlbum(info)) {
+                    UniFile file = UniFile.fromUri(context, Uri.parse(info.archiveUri));
+                    if (file != null) {
+                        UniRandomAccessFile input = file.createRandomAccessFile("r");
+                        A7ZipArchive archive = null;
+                        try {
+                            archive = A7ZipArchive.create(input);
+                            pages = archive.getArchiveEntries().size();
+                        } finally {
+                            if (archive != null) archive.close();
+                            else input.close();
+                        }
+                    }
+                } else {
+                    UniFile directory = SpiderDen.getExistingGalleryDownloadDir(info);
+                    SpiderInfo header = directory == null ? null : SpiderInfo.readHeader(
+                            directory.findFile(SpiderQueen.SPIDER_INFO_FILENAME));
+                    if (header != null && header.gid == info.gid
+                            && java.util.Objects.equals(header.token, info.token)) pages = header.pages;
+                }
+                if (pages > 0) info.pages = pages;
+            } catch (Exception | LinkageError ignored) {
+                // Missing storage must not erase usable in-memory metadata or stop other entries.
+            }
+        }
+    }
+
     private static boolean matchesTags(Context context, DownloadInfo info, String query) {
         if (DownloadTags.matches(context, info.gid, query)) return true;
         List<String> tags = new ArrayList<>();
@@ -123,39 +162,25 @@ public final class DownloadListProjection {
     }
 
     public static void loadFileSizes(List<DownloadInfo> source) {
-        loadFileSizes(EhApplication.getInstance(), source);
-    }
-
-    public static void loadFileSizes(Context context, List<DownloadInfo> source) {
         for (DownloadInfo info : source) {
-            // Refresh even completed entries: downloads grow and files can be deleted externally.
-            long size = -1;
+            if (info.fileSize >= 0) continue;
             try {
-                if (info.archiveUri != null && !info.archiveUri.isEmpty()
-                        && !DownloadAlbumImporter.Companion.isLocalAlbum(info)) {
-                    size = archiveSize(context, Uri.parse(info.archiveUri));
-                } else {
-                    UniFile directory = SpiderDen.getExistingGalleryDownloadDir(info);
-                    if (directory != null) size = directory.getTotalSize();
-                }
+                UniFile directory = SpiderDen.getGalleryDownloadDir(info);
+                if (directory != null && directory.isDirectory()) info.fileSize = folderSize(directory);
             } catch (Exception ignored) {
-                // Lost permissions or unavailable storage must not leave a stale known size.
+                // Unavailable storage keeps the existing unknown-size value.
             }
-            info.fileSize = size >= 0 ? size : -1;
         }
     }
 
-    private static long archiveSize(Context context, Uri uri) {
-        if ("file".equals(uri.getScheme())) {
-            UniFile file = UniFile.fromUri(context, uri);
-            return file != null ? file.getTotalSize() : -1;
+    private static long folderSize(UniFile folder) {
+        long size = 0;
+        UniFile[] files = folder.listFiles();
+        if (files != null) for (UniFile file : files) {
+            if (file.isDirectory()) size += folderSize(file);
+            else if (file.isFile()) size += Math.max(0, file.length());
         }
-        if (!"content".equals(uri.getScheme()) || context == null) return -1;
-        try (Cursor cursor = context.getContentResolver().query(uri,
-                new String[]{OpenableColumns.SIZE}, null, null, null)) {
-            if (cursor == null || !cursor.moveToFirst() || cursor.isNull(0)) return -1;
-            return cursor.getLong(0);
-        }
+        return size;
     }
 
     private static int categoryFor(int id) {

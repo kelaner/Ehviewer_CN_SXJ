@@ -7,7 +7,7 @@
     <string name="download_group_group">团队</string>
     <string name="download_reorder_label">拖动排序标签</string>
     <string name="download_filter_list">过滤</string>
-    <string name="download_view_mode">视图模式</string>
+    <string name="download_view_mode">视图</string>
     <string name="download_view_details">详情</string>
     <string name="download_view_thumbnails">缩略图</string>
     <string name="download_tag_actions">标签操作</string>

@@ -61,6 +61,7 @@ import com.hippo.ehviewer.ui.scene.download.part.DownloadAdapter.DownloadHolder
 import com.hippo.ehviewer.ui.scene.gallery.detail.GalleryDetailScene
 import com.hippo.ehviewer.ui.scene.gallery.list.EnterGalleryDetailTransaction
 import com.hippo.ehviewer.widget.SimpleRatingView
+import com.hippo.ehviewer.widget.TileThumb
 import com.hippo.lib.yorozuya.AssertUtils
 import com.hippo.lib.yorozuya.FileUtils
 import com.hippo.lib.yorozuya.ViewUtils
@@ -161,9 +162,9 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DownloadHolder {
         val holder = DownloadHolder(mInflater.inflate(
-            if (mScene.isThumbnailMode) R.layout.item_download_thumb else R.layout.item_download, parent, false))
+            if (viewType == 1) R.layout.item_download_thumb else R.layout.item_download, parent, false))
 
-        if (!mScene.isThumbnailMode) {
+        if (viewType == 0) {
             val lp = holder.thumb.layoutParams
             lp.width = mListThumbWidth
             lp.height = mListThumbHeight
@@ -179,6 +180,8 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
         try {
             val pos = mCallback.positionInList(position)
             val info = list.get(pos)
+
+            (holder.thumb as? TileThumb)?.setThumbSize(info.thumbWidth, info.thumbHeight)
 
             var title = getSuitableTitle(info)
             val importedArchive = isImportedArchive(info)
@@ -789,7 +792,9 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
             speed = itemView.findViewById<TextView>(R.id.speed)
 
             // TODO cancel on click listener when select items
-            thumb.setOnClickListener(this)
+            if (thumb !is TileThumb) {
+                thumb.setOnClickListener(this)
+            }
             start.setOnClickListener(this)
             stop.setOnClickListener(this)
 

@@ -7,7 +7,7 @@
     <string name="download_group_group">Group</string>
     <string name="download_reorder_label">Reorder label</string>
     <string name="download_filter_list">Filter</string>
-    <string name="download_view_mode">View mode</string>
+    <string name="download_view_mode">View</string>
     <string name="download_view_details">Details</string>
     <string name="download_view_thumbnails">Thumbnails</string>
     <string name="download_tag_actions">Labels and local tags</string>

@@ -154,6 +154,7 @@ public class DownloadsScene extends ToolbarScene
     private String mGrouping;
     private String mGroupSelection;
     private boolean mThumbnailMode;
+    private MarginItemDecoration mViewDecoration;
     private com.hippo.ehviewer.download.DownloadMetadataLoader mMetadataLoader;
     private com.hippo.ehviewer.ui.scene.download.part.DownloadRefreshDialog mRefreshDialog;
     private boolean mPageCountScanRunning;
@@ -468,13 +469,16 @@ public class DownloadsScene extends ToolbarScene
     public void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putString(KEY_LABEL, mLabel);
+        outState.putBoolean("download_thumbnail_mode", mThumbnailMode);
     }
 
     @Nullable
     @Override
     public View onCreateView3(LayoutInflater inflater,
                               @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        mThumbnailMode = false;
+        if (savedInstanceState != null) {
+            mThumbnailMode = savedInstanceState.getBoolean("download_thumbnail_mode", false);
+        }
         View view = inflater.inflate(R.layout.scene_download, container, false);
 
         Context context = getEHContext();
@@ -616,8 +620,6 @@ public class DownloadsScene extends ToolbarScene
         // 初始化分页监听器
         mPaginationController.bindPageChangeListener(mOriginalAdapter, mRecyclerView);
         mLayoutManager = new AutoStaggeredGridLayoutManager(0, StaggeredGridLayoutManager.VERTICAL);
-        mLayoutManager.setColumnSize(resources.getDimensionPixelOffset(Settings.getDetailSizeResId()));
-        mLayoutManager.setStrategy(AutoStaggeredGridLayoutManager.STRATEGY_MIN_SIZE);
 
         // 设置拖拽动画器
         final GeneralItemAnimator animator = new DraggableItemAnimator();
@@ -645,12 +647,8 @@ public class DownloadsScene extends ToolbarScene
         if (itemAnimator instanceof GeneralItemAnimator) {
             ((GeneralItemAnimator) itemAnimator).setSupportsChangeAnimations(false);
         }
-        int interval = resources.getDimensionPixelOffset(R.dimen.gallery_list_interval);
-        int paddingH = resources.getDimensionPixelOffset(R.dimen.gallery_list_margin_h);
-        int paddingV = resources.getDimensionPixelOffset(R.dimen.gallery_list_margin_v);
-        MarginItemDecoration decoration = new MarginItemDecoration(interval, paddingH, paddingV, paddingH, paddingV);
-        mRecyclerView.addItemDecoration(decoration);
-        decoration.applyPaddings(mRecyclerView);
+        mViewDecoration = null;
+        updateDownloadViewLayout();
 
         // 将拖拽管理器附加到RecyclerView
         if (mDragDropManager != null) {
@@ -667,6 +665,27 @@ public class DownloadsScene extends ToolbarScene
             mRecyclerView.scrollToPosition(listIndexInPage(mInitPosition));
             mInitPosition = -1;
         }
+    }
+
+    private void updateDownloadViewLayout() {
+        Resources resources = getResources();
+        mLayoutManager.setColumnSize(resources.getDimensionPixelOffset(mThumbnailMode
+                ? R.dimen.gallery_grid_column_width_middle : Settings.getDetailSizeResId()));
+        mLayoutManager.setStrategy(mThumbnailMode
+                ? AutoStaggeredGridLayoutManager.STRATEGY_SUITABLE_SIZE
+                : AutoStaggeredGridLayoutManager.STRATEGY_MIN_SIZE);
+        if (mViewDecoration != null) {
+            mRecyclerView.removeItemDecoration(mViewDecoration);
+        }
+        int interval = resources.getDimensionPixelOffset(mThumbnailMode
+                ? R.dimen.gallery_grid_interval : R.dimen.gallery_list_interval);
+        int paddingH = resources.getDimensionPixelOffset(mThumbnailMode
+                ? R.dimen.gallery_grid_margin_h : R.dimen.gallery_list_margin_h);
+        int paddingV = resources.getDimensionPixelOffset(mThumbnailMode
+                ? R.dimen.gallery_grid_margin_v : R.dimen.gallery_list_margin_v);
+        mViewDecoration = new MarginItemDecoration(interval, paddingH, paddingV, paddingH, paddingV);
+        mRecyclerView.addItemDecoration(mViewDecoration);
+        mViewDecoration.applyPaddings(mRecyclerView);
     }
 
     private void setupFastScroller(@NonNull FastScroller fastScroller, @NonNull Context context) {
@@ -753,13 +772,10 @@ public class DownloadsScene extends ToolbarScene
 
         int id = item.getItemId();
         switch (id) {
-            case R.id.download_view_details:
-            case R.id.download_view_thumbnails: {
-                mThumbnailMode = id == R.id.download_view_thumbnails;
-                item.setChecked(true);
-                mLayoutManager.setColumnSize(getResources().getDimensionPixelOffset(
-                        mThumbnailMode ? Settings.getThumbSizeResId() : Settings.getDetailSizeResId()));
+            case R.id.download_view_mode: {
                 if (mDragDropManager != null) mDragDropManager.cancelDrag();
+                mThumbnailMode = !mThumbnailMode;
+                updateDownloadViewLayout();
                 if (mOriginalAdapter != null) mOriginalAdapter.notifyDataSetChanged();
                 return true;
             }

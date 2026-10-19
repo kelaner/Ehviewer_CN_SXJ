@@ -2,9 +2,11 @@
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent"
     android:layout_height="wrap_content" android:layout_margin="2dp" style="@style/CardView.Reactive">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
-        <com.hippo.ehviewer.widget.FixedThumb android:id="@+id/thumb" android:layout_width="match_parent"
-            android:layout_height="180dp" app:retryType="longClick" app:minAspect="0.333" app:maxAspect="1.333" />
+    <com.hippo.ehviewer.widget.TileThumb android:id="@+id/thumb" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:scaleType="fitCenter" app:retryType="longClick" />
+    <!-- Keep the shared holder's detail views hidden even when download state updates them. -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:visibility="gone">
         <TextView android:id="@+id/title" style="@style/CardMessage" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:padding="6dp" android:maxLines="2" android:ellipsize="end" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">

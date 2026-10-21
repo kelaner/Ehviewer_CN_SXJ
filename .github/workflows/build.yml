@@ -44,6 +44,9 @@ jobs:
             --tests com.hippo.ehviewer.download.DownloadFileSizesTest \
             --tests com.hippo.ehviewer.updater.GitHubReleaseTest \
             --tests com.hippo.ehviewer.download.DownloadCoverTest \
+            --tests com.hippo.ehviewer.download.LocalCoverLoadingTest \
+            --tests com.hippo.ehviewer.download.DownloadCoverRecyclerTest \
+            --tests com.hippo.beerbelly.SimpleDiskCacheTest \
             --tests com.hippo.ehviewer.download.DownloadMetadataTest \
             --tests com.hippo.ehviewer.download.DownloadRefreshDialogTest \
             --tests com.hippo.ehviewer.download.DownloadThumbLayoutTest \

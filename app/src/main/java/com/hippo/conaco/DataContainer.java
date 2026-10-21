@@ -29,6 +29,11 @@ public interface DataContainer {
      */
     boolean isEnabled();
 
+    /** Read durable local content before any shared memory or disk cache. */
+    default boolean isLocalFirst() {
+        return false;
+    }
+
     /**
      * Get 304 or something like that
      */

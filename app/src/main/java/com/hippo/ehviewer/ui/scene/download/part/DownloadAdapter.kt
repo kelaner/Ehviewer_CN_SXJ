@@ -511,7 +511,7 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
     }
 
     private fun loadLocalAlbumThumbnail(thumb: LoadImageView, info: DownloadInfo) {
-        loadLocalThumbnail(thumb, DownloadAlbumImporter.URI_PREFIX + info.gid, false) {
+        loadLocalThumbnail(thumb, DownloadAlbumImporter.URI_PREFIX + DownloadCover.getCacheKey(info.gid), false) {
             decodeLocalAlbumThumb(info)
         }
     }
@@ -555,12 +555,14 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
                 thumbnailHandler.post {
                     if (thumbnailsDetached) return@post
                     val waiting = pendingThumbnails.remove(cacheKey) ?: return@post
-                    if (thumbnail != null) {
-                        thumbnailCache.put(cacheKey, thumbnail)
-                        for (reference in waiting) {
-                            val view = reference.get() ?: continue
-                            if (cacheKey == view.getTag(R.id.thumb)) {
+                    if (thumbnail != null) thumbnailCache.put(cacheKey, thumbnail)
+                    for (reference in waiting) {
+                        val view = reference.get() ?: continue
+                        if (cacheKey == view.getTag(R.id.thumb)) {
+                            if (thumbnail != null) {
                                 view.load(BitmapDrawable(view.resources, thumbnail))
+                            } else if (!archive) {
+                                view.load(R.drawable.image_failed)
                             }
                         }
                     }
@@ -594,29 +596,23 @@ class DownloadAdapter(scene: DownloadsScene, callback: DownloadAdapterCallback) 
         if (dir == null || !dir.isDirectory()) {
             return null
         }
-        var thumbFile = dir.findFile(".thumb")
-        if (thumbFile == null) {
-            thumbFile = SpiderDen.findImageFile(dir, 0)
-        }
-        if (thumbFile == null) {
-            return null
-        }
-        try {
-            thumbFile.openInputStream().use { boundsStream ->
-                val options = BitmapFactory.Options()
-                options.inJustDecodeBounds = true
-                BitmapFactory.decodeStream(boundsStream, null, options)
+        for (cover in listOf(true, false)) {
+            try {
+                val file = if (cover) dir.findFile(".thumb") else SpiderDen.findImageFile(dir, 0)
+                if (file == null) continue
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                file.openInputStream().use { BitmapFactory.decodeStream(it, null, options) }
+                if (options.outWidth <= 0 || options.outHeight <= 0) continue
                 options.inJustDecodeBounds = false
                 options.inSampleSize = thumbnailSampleSize(options.outWidth, options.outHeight)
                 options.inPreferredConfig = Bitmap.Config.RGB_565
-                thumbFile.openInputStream().use { decodeStream ->
-                    return BitmapFactory.decodeStream(decodeStream, null, options)
-                }
+                val bitmap = file.openInputStream().use { BitmapFactory.decodeStream(it, null, options) }
+                if (bitmap != null) return bitmap
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to decode local album thumbnail for gid=" + info.gid, e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to decode local album thumbnail for gid=" + info.gid, e)
-            return null
         }
+        return null
     }
 
     private fun loadArchiveThumbnail(thumb: LoadImageView, archiveUri: Uri) {

@@ -27,6 +27,9 @@ import com.hippo.beerbelly.SimpleDiskCache;
 import com.hippo.streampipe.InputStreamPipe;
 import com.hippo.streampipe.OutputStreamPipe;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -60,10 +63,12 @@ public class ConacoTask<V> {
     private final Executor mNetworkExecutor;
     private final Conaco<V> mConaco;
 
+    private LocalLoadTask mLocalLoadTask;
     private DiskLoadTask mDiskLoadTask;
     private NetworkLoadTask mNetworkLoadTask;
     private Call mCall;
     private boolean mStart;
+    private boolean mHasFallbackValue;
     private boolean hardware = true;
     private volatile boolean mStop;
 
@@ -114,6 +119,62 @@ public class ConacoTask<V> {
         }*/
     }
 
+    private boolean isDataContainerEnabled() {
+        try {
+            return mDataContainer != null && mDataContainer.isEnabled();
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Local storage is unavailable", error);
+            return false;
+        }
+    }
+
+    boolean isLocalFirst() {
+        return mDataContainer != null && mDataContainer.isLocalFirst();
+    }
+
+    @UiThread
+    void startLocal(Executor executor) {
+        if (mStop || mLocalLoadTask != null) return;
+        mLocalLoadTask = new LocalLoadTask();
+        mLocalLoadTask.executeOnExecutor(executor);
+    }
+
+    private class LocalLoadTask extends AsyncTask<Void, Void, V> {
+        @Override
+        protected V doInBackground(Void... params) {
+            if (isNotNecessary(this)) return null;
+            try {
+                if (mDataContainer.isEnabled()) {
+                    InputStreamPipe pipe = mDataContainer.get();
+                    if (pipe != null) return mHelper.decode(pipe, hardware);
+                }
+            } catch (RuntimeException error) {
+                // A revoked storage grant or broken local file must not strand the view.
+                Log.w(TAG, "Can't read local cover", error);
+            }
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(V value) {
+            mLocalLoadTask = null;
+            if (isNotNecessary(this)) return;
+            Unikery<V> unikery = getUnikery();
+            if (value != null && unikery.onGetValue(value, Conaco.SOURCE_DISK)) {
+                // The durable file is the cache. Do not duplicate it or wait for cache IO.
+                onFinish();
+            } else {
+                mConaco.startCachedTask(ConacoTask.this);
+            }
+        }
+    }
+
+    @UiThread
+    void repairAfterMemoryHit() {
+        mHasFallbackValue = true;
+        start();
+    }
+
     @UiThread
     void start() {
         if (mStop || mStart) {
@@ -137,7 +198,7 @@ public class ConacoTask<V> {
             } else {
                 unikery.onMiss(Conaco.SOURCE_DISK);
                 unikery.onMiss(Conaco.SOURCE_NETWORK);
-                unikery.onFailure();
+                if (!mHasFallbackValue) unikery.onFailure();
             }
         }
 
@@ -153,6 +214,9 @@ public class ConacoTask<V> {
         mStop = true;
 
         // Stop jobs
+        if (mLocalLoadTask != null) {
+            mLocalLoadTask.cancel(false);
+        }
         if (mDiskLoadTask != null) { // Getting from disk
             mDiskLoadTask.cancel(false);
         } else if (mNetworkLoadTask != null) { // Getting from network
@@ -178,21 +242,33 @@ public class ConacoTask<V> {
 
     private static void putFromDiskCacheToDataContainer(String key, ValueCache cache, DataContainer container) {
         SimpleDiskCache diskCache = cache.getDiskCache();
-        if (diskCache != null) {
+        if (diskCache == null) return;
+        File temporary = null;
+        try {
             InputStreamPipe pipe = diskCache.getInputStreamPipe(key);
-            if (pipe != null) {
-                try {
-                    pipe.obtain();
-                    container.save(pipe.open(), -1L, null, null);
-                } catch (IOException e) {
-                    Log.d(TAG, "Can't save value from disk cache to data container");
-                    e.printStackTrace();
-                    container.remove();
-                } finally {
-                    pipe.close();
-                    pipe.release();
+            if (pipe == null) return;
+            temporary = File.createTempFile("conaco-cover-", ".image", diskCache.getDirectory());
+            try {
+                pipe.obtain();
+                try (OutputStream output = new FileOutputStream(temporary)) {
+                    InputStream input = pipe.open();
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
                 }
+            } finally {
+                pipe.close();
+                pipe.release();
             }
+            // save() can invalidate this same cache key. Never call it with a read lock held.
+            try (InputStream input = new FileInputStream(temporary)) {
+                container.save(input, temporary.length(), null, null);
+            }
+        } catch (IOException | RuntimeException error) {
+            // A failed repair must not remove a concurrently refreshed, usable local cover.
+            Log.w(TAG, "Can't save value from disk cache to data container", error);
+        } finally {
+            if (temporary != null) temporary.delete();
         }
     }
 
@@ -222,7 +298,7 @@ public class ConacoTask<V> {
                 V value = null;
 
                 // First check data container
-                if (mDataContainer != null && mDataContainer.isEnabled()) {
+                if (mDataContainer != null && !isLocalFirst() && mDataContainer.isEnabled()) {
                     InputStreamPipe isp = mDataContainer.get();
                     if (isp != null) {
                         value = mHelper.decode(isp,hardware);
@@ -241,7 +317,7 @@ public class ConacoTask<V> {
                         triedDiskCache = true;
                         value = mCache.getFromDisk(mKey,hardware);
                         // Put back to data container
-                        if (value != null && mDataContainer != null && mDataContainer.isEnabled()) {
+                        if (value != null && isDataContainerEnabled()) {
                             putFromDiskCacheToDataContainer(mKey, mCache, mDataContainer);
                         }
                     }
@@ -279,7 +355,7 @@ public class ConacoTask<V> {
                         return;
                     } else if (!getValue) {
                         unikery.onMiss(Conaco.SOURCE_DISK);
-                        unikery.onFailure();
+                        if (!mHasFallbackValue) unikery.onFailure();
                     }
                 }
                 onFinish();
@@ -364,7 +440,7 @@ public class ConacoTask<V> {
                     return null;
                 }
 
-                if ((mDataContainer == null || !mDataContainer.isEnabled()) && mKey != null) {
+                if (!isDataContainerEnabled() && mKey != null) {
                     if (putToDiskCache(is, body.contentLength())) {
                         // Get object from disk cache
                         value = mCache.getFromDisk(mKey,hardware);
@@ -381,7 +457,7 @@ public class ConacoTask<V> {
                         mCache.removeFromDisk(mKey);
                         return null;
                     }
-                } else if (mDataContainer != null && mDataContainer.isEnabled()) {
+                } else if (isDataContainerEnabled()) {
                     // Check url Moved
                     HttpUrl requestHttpUrl = request.url();
                     HttpUrl responseHttpUrl = response.request().url();
@@ -401,7 +477,8 @@ public class ConacoTask<V> {
                     }
                     value = mHelper.decode(isp,hardware);
                     if (value == null) {
-                        mDataContainer.remove();
+                        // Local-first saves are validated and may preserve a newer explicit cover.
+                        if (!isLocalFirst()) mDataContainer.remove();
                     } else if (mKey != null) {
                         // Put to disk cache
                         putFromDataContainerToDiskCache(mKey, mCache, mDataContainer);
@@ -439,7 +516,7 @@ public class ConacoTask<V> {
                 Unikery<V> unikery = mUnikeryWeakReference.get();
                 if (unikery != null && unikery.getTaskId() == mId) {
                     if (holder == null || !unikery.onGetValue(holder, Conaco.SOURCE_NETWORK)) {
-                        unikery.onFailure();
+                        if (!mHasFallbackValue) unikery.onFailure();
                     }
                 }
                 onFinish();

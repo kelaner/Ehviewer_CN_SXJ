@@ -31,7 +31,8 @@ class Register<V> {
      */
     public synchronized boolean register(int id, ConacoTask<V> task) {
         boolean repeatedKey = false;
-        String taskKey = task.getKey();
+        // Durable local reads are independent of an in-flight remote/cache request.
+        String taskKey = task.isLocalFirst() ? null : task.getKey();
 
         // For no-key task, there no need to check
         if (taskKey != null) {
@@ -39,7 +40,7 @@ class Register<V> {
         }
 
         // Append task
-        mKeyMap.putElement(taskKey, task);
+        if (!task.isLocalFirst()) mKeyMap.putElement(taskKey, task);
         mIdMap.append(id, task);
 
         return repeatedKey;
@@ -47,7 +48,7 @@ class Register<V> {
 
     public synchronized ConacoTask<V> unregister(int id) {
         ConacoTask<V> task = mIdMap.remove(id);
-        if (task != null) {
+        if (task != null && !task.isLocalFirst()) {
             mKeyMap.removeElement(task.getKey(), task);
         }
         return task;

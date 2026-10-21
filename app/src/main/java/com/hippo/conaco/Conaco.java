@@ -52,12 +52,17 @@ public class Conaco<V> {
     private OkHttpClient mOkHttpClient;
     private Register<V> mRegister;
     private final SerialThreadExecutor mDiskExecutor;
+    // Durable download covers must not wait behind shared cache maintenance.
+    private final ThreadPoolExecutor mLocalExecutor = new ThreadPoolExecutor(2, 2, 3L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(),
+            new PriorityThreadFactory("Conaco-Local", Process.THREAD_PRIORITY_BACKGROUND));
     private final ThreadPoolExecutor mNetworkExecutor;
     private final AtomicInteger mIdGenerator;
     private final boolean mDebug;
 
     private Conaco(Builder<V> builder) {
         mHelper = builder.objectHelper;
+        mLocalExecutor.allowCoreThreadTimeOut(true);
 
         BeerBelly.BeerBellyParams beerBellyParams = new BeerBelly.BeerBellyParams();
         beerBellyParams.hasMemoryCache = builder.hasMemoryCache;
@@ -87,6 +92,7 @@ public class Conaco<V> {
     }
 
     private void onUnregisterConacoTask(ConacoTask<V> task) {
+        if (task.isLocalFirst()) return;
         ConacoTask<V> next = mRegister.getByKey(task.getKey());
         if (next != null) {
             startConacoTask(next);
@@ -102,6 +108,20 @@ public class Conaco<V> {
             return;
         }
 
+        if (task.isLocalFirst()) {
+            unikery.onMiss(SOURCE_MEMORY);
+            task.startLocal(mLocalExecutor);
+            return;
+        }
+        startCachedTask(task);
+    }
+
+    // Also used after a missing, unreadable or invalid local cover.
+    void startCachedTask(ConacoTask<V> task) {
+        Unikery<V> unikery = task.getUnikery();
+        if (unikery == null || unikery.getTaskId() != task.getId()) {
+            return;
+        }
         String key = task.getKey();
         V value = null;
 
@@ -114,8 +134,12 @@ public class Conaco<V> {
             unikery.onMiss(SOURCE_MEMORY);
             task.start();
         } else {
-            // Get the object, finish the task
-            finishConacoTask(task);
+            if (task.isLocalFirst()) {
+                task.repairAfterMemoryHit();
+            } else {
+                // Get the object, finish the task
+                finishConacoTask(task);
+            }
         }
     }
 

@@ -126,7 +126,7 @@ public class LoadImageView extends FixedAspectImageView implements Unikery<Image
         super.onAttachedToWindow();
 
         if (!mLoadFromDrawable) {
-            if (mFailed) {
+            if (mFailed && (mDataContainer == null || !mDataContainer.isLocalFirst())) {
                 onFailure();
             } else if (mTaskId == Unikery.INVALID_ID) /* if (!mConaco.isLoading(mTaskId)) TODO Update Conaco */ {
                 load(mKey, mUrl, mDataContainer, mUseNetwork, mHardware);
@@ -380,9 +380,11 @@ public class LoadImageView extends FixedAspectImageView implements Unikery<Image
                         .setCallback(callback);
                 EhApplication.getEhClient(context).execute(request);
             }
-            // Can't retry, so release
-            mKey = null;
-            mUrl = null;
+            // Durable local covers may become available while this view is detached.
+            if (mDataContainer == null || !mDataContainer.isLocalFirst()) {
+                mKey = null;
+                mUrl = null;
+            }
         }
 
     }
@@ -425,12 +427,12 @@ public class LoadImageView extends FixedAspectImageView implements Unikery<Image
 
     @Override
     public void onClick(@NonNull View v) {
-        load(mKey, mUrl, true);
+        load(mKey, mUrl, mDataContainer, true, mHardware);
     }
 
     @Override
     public boolean onLongClick(@NonNull View v) {
-        load(mKey, mUrl, true);
+        load(mKey, mUrl, mDataContainer, true, mHardware);
         return true;
     }
 

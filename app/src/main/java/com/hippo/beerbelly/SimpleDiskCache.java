@@ -111,6 +111,10 @@ public class SimpleDiskCache {
         return builder.toString();
     }
 
+    public File getDirectory() {
+        return mCacheDir;
+    }
+
     public synchronized boolean isValid() {
         return mDiskLruCache != null;
     }
@@ -297,6 +301,9 @@ public class SimpleDiskCache {
             os = editor.newOutputStream(0);
             if (os != null) {
                 Util.copy(is, os);
+                // Close before commit: committing renames the file, but does not close it.
+                os.close();
+                os = null;
                 completeEdit = true;
                 editor.commit();
                 return true;
@@ -403,6 +410,7 @@ public class SimpleDiskCache {
         private final String mKey;
         private CounterLock mLock;
         private DiskLruCache.Editor mCurrentEditor;
+        private OutputStream mOutputStream;
 
         private CacheOutputStreamPipe(String key) {
             mKey = key;
@@ -451,6 +459,7 @@ public class SimpleDiskCache {
             try {
                 os = editor.newOutputStream(0);
                 mCurrentEditor = editor;
+                mOutputStream = os;
                 return os;
             } catch (IOException e) {
                 // Get trouble
@@ -466,6 +475,8 @@ public class SimpleDiskCache {
         @Override
         public void close() {
             if (mCurrentEditor != null) {
+                Util.closeQuietly(mOutputStream);
+                mOutputStream = null;
                 try {
                     mCurrentEditor.commit();
                 } catch (IOException e) {

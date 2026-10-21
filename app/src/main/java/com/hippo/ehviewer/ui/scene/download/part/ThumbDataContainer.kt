@@ -29,6 +29,8 @@ import java.io.InputStream
 
 /** Download covers are replaced only after a complete, decodable image is available. */
 class ThumbDataContainer(private val mInfo: DownloadInfo) : DataContainer {
+    override fun isLocalFirst(): Boolean = true
+
     override fun isEnabled(): Boolean = SpiderDen.getGalleryDownloadDir(mInfo)?.isDirectory == true
 
     override fun onUrlMoved(requestUrl: String?, responseUrl: String?) = Unit
@@ -47,6 +49,7 @@ class ThumbDataContainer(private val mInfo: DownloadInfo) : DataContainer {
             DownloadCover.saveIfMissing(context, mInfo, temporary)
             true
         } catch (error: IOException) {
+            android.util.Log.w("ThumbDataContainer", "Failed to save cover for gid=${mInfo.gid}", error)
             false
         } finally {
             temporary?.delete()

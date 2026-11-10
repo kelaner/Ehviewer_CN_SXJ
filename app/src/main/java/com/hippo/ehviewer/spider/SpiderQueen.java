@@ -1263,6 +1263,12 @@ public final class SpiderQueen implements Runnable {
 
         // false for stop
         private boolean downloadImage(long gid, int index, String pToken, String previousPToken, boolean force) {
+            try (SpiderDen.OriginalPageGuard ignored = SpiderDen.lockOriginalPage(gid, index)) {
+                return downloadImageLocked(gid, index, pToken, previousPToken, force);
+            }
+        }
+
+        private boolean downloadImageLocked(long gid, int index, String pToken, String previousPToken, boolean force) {
             String skipHathKey = null;
             List<String> skipHathKeys = new ArrayList<>(5);
             String originImageUrl = null;
@@ -1527,8 +1533,11 @@ public final class SpiderQueen implements Runnable {
                         }
                     } finally {
                         if (osPipe != null) {
-                            osPipe.close();
-                            osPipe.release();
+                            try {
+                                osPipe.close();
+                            } finally {
+                                osPipe.release();
+                            }
                         }
                     }
 

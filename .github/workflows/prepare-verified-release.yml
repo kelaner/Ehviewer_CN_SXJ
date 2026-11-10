@@ -1,0 +1,111 @@
+name: Prepare verified release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v2.0.2.5.8
+        required: true
+        type: string
+      source_sha:
+        description: Full 40-character commit SHA referenced by the tag
+        required: true
+        type: string
+      build_run_id:
+        description: Successful Build workflow run ID for the same commit
+        required: true
+        type: string
+      version_name:
+        description: Expected Android versionName
+        required: true
+        type: string
+      version_code:
+        description: Expected Android versionCode
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: verified-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      BUILD_RUN: ${{ inputs.build_run_id }}
+      VERSION_NAME: ${{ inputs.version_name }}
+      VERSION_CODE: ${{ inputs.version_code }}
+    steps:
+      - name: Validate inputs and successful build
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]
+          [[ "$VERSION_NAME" == "${TAG#v}" ]]
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > "$RUNNER_TEMP/run.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          run = json.loads((Path(os.environ['RUNNER_TEMP']) / 'run.json').read_text())
+          assert run['head_sha'] == os.environ['SOURCE_SHA']
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['path'] == '.github/workflows/build.yml'
+          assert run['repository']['full_name'] == os.environ['GH_REPO']
+          assert run['event'] in ('push', 'workflow_dispatch')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify tag target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;36.0.0'
+      - name: Download and verify artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/apk" "$RUNNER_TEMP/release"
+          gh run download "$BUILD_RUN" -n Ehviewer-Release -D "$RUNNER_TEMP/apk"
+          mapfile -t apks < <(find "$RUNNER_TEMP/apk" -name '*.apk' -type f)
+          test "${#apks[@]}" -eq 1
+          apk="${apks[0]}"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/release/APK-SIGNATURE.txt"
+          grep -F 'certificate SHA-256 digest: 8f75d13aef754b495a32d2c2951dd0cb927058409dcc0173145da019c4fd0255' "$RUNNER_TEMP/release/APK-SIGNATURE.txt"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
+          grep -F "package: name='com.kelaner.ehviewer' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$RUNNER_TEMP/badging.txt"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -Z1 "$apk" | grep -Fx "lib/$abi/libehviewer.so" > /dev/null
+            unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvulkan_upscaler.so" > /dev/null
+          done
+          unzip -Z1 "$apk" | grep -Fx 'assets/realesrgan-v3-anime-x2/x2.bin' > /dev/null
+          unzip -Z1 "$apk" | grep -Fx 'assets/realesrgan-v3-anime-x2/x2.param' > /dev/null
+          cp "$apk" "$RUNNER_TEMP/release/Ehviewer-$VERSION_NAME.apk"
+          (cd "$RUNNER_TEMP/release" && sha256sum "Ehviewer-$VERSION_NAME.apk" > SHA256.txt)
+      - name: Create draft without replacing an existing release
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tag must already exist and point at the checked commit. gh release
+          # create refuses an existing release; no upload uses --clobber.
+          gh release create "$TAG" --verify-tag --draft --title "$TAG" \
+            --notes "Verified build $BUILD_RUN for commit $SOURCE_SHA. Review this draft before publication." \
+            "$RUNNER_TEMP/release/Ehviewer-$VERSION_NAME.apk" \
+            "$RUNNER_TEMP/release/SHA256.txt" "$RUNNER_TEMP/release/APK-SIGNATURE.txt"

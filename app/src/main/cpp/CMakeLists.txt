@@ -10,6 +10,12 @@ project("ehviewer")
 
 add_subdirectory(jni)
 
+set(ncnn_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ncnn/${ANDROID_ABI}/lib/cmake/ncnn")
+find_package(ncnn REQUIRED)
+add_library(vulkan_upscaler SHARED vulkan_upscaler.cpp)
+target_link_libraries(vulkan_upscaler ncnn jnigraphics android log)
+target_link_options(vulkan_upscaler PRIVATE -Wl,-z,max-page-size=16384)
+
 
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.

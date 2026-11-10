@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="upscale_settings_title">漫画超分</string>
+    <string name="upscale_model_preset">漫画模型预设</string>
+    <string name="upscale_manage_title">超分管理</string>
+    <string name="upscale_loading">正在读取超分信息…</string>
+    <string name="upscale_empty">没有可管理的漫画</string>
+    <string name="upscale_delete_results">删除所选超分</string>
+    <string name="upscale_delete_originals">删除所选原图</string>
+    <string name="upscale_select_first">请先选择漫画</string>
+    <string name="upscale_confirm_results">确认删除所选 %1$d 部漫画的超分结果？原图将保留。</string>
+    <string name="upscale_confirm_originals">确认删除所选 %1$d 部漫画的原图？此操作不可撤销。删除前会校验图片，但无法阻止其他应用或云同步同时修改文件，请先停止同步并自行备份。</string>
+    <string name="upscale_entry_summary">已超分 %1$d 页 · 处理时原图大小 %2$s · 超分 %3$s\n模型：%4$s</string>
+    <string name="upscale_failed">操作失败：%1$s</string>
+    <string-array name="upscale_model_entries"><item>AnimeVideo v3 2×（推荐）</item></string-array>
+    <string-array name="upscale_model_values"><item>anime2x</item></string-array>
+</resources>

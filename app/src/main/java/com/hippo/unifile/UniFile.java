@@ -147,12 +147,12 @@ public abstract class UniFile {
 
         if (isFileUri(uri)) {
             return fromFile(new File(uri.getPath()));
+        } else if (isTreeUri(uri)) {
+            return isDocumentUri(context, uri)
+                    ? new com.hippo.unifile.TreeDocumentFile(null, context, uri)
+                    : fromTreeUri(context, uri);
         } else if (isDocumentUri(context, uri)) {
-            if (isTreeUri(uri)) {
-                return fromTreeUri(context, uri);
-            } else {
-                return fromSingleUri(context, uri);
-            }
+            return fromSingleUri(context, uri);
         } else if (com.hippo.unifile.MediaFile.isMediaUri(context, uri)) {
             return new com.hippo.unifile.MediaFile(context, uri);
         } else {

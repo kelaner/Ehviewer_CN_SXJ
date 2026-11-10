@@ -721,6 +721,7 @@ public class DownloadsScene extends ToolbarScene
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        com.hippo.ehviewer.ui.scene.download.part.DownloadUpscaleQueue.INSTANCE.resume(view.getContext());
         updateTitle();
         setNavigationIcon(R.drawable.v_arrow_left_dark_x24);
     }
@@ -777,6 +778,10 @@ public class DownloadsScene extends ToolbarScene
 
         int id = item.getItemId();
         switch (id) {
+            case R.id.download_upscale_queue: {
+                com.hippo.ehviewer.ui.scene.download.part.DownloadUpscaleQueue.showStatus(activity, "");
+                return true;
+            }
             case R.id.download_view_mode: {
                 if (mDragDropManager != null) mDragDropManager.cancelDrag();
                 mThumbnailMode = !mThumbnailMode;

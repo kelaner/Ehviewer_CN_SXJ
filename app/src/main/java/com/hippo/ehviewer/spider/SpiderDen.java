@@ -45,9 +45,51 @@ import com.hippo.lib.yorozuya.Utilities;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class SpiderDen {
+
+    private static final Map<String, PageLock> PAGE_LOCKS = new HashMap<>();
+
+    private static final class PageLock {
+        final ReentrantLock lock = new ReentrantLock();
+        int users;
+    }
+
+    public interface OriginalPageGuard extends AutoCloseable {
+        @Override
+        void close();
+    }
+
+    /** Acquires the process-local original-image lock for a gallery and zero-based page index.
+     * The returned guard must be closed on the acquiring thread, including on failure.
+     */
+    @NonNull
+    public static OriginalPageGuard lockOriginalPage(long gid, int index) {
+        String key = gid + ":" + index;
+        PageLock pageLock;
+        synchronized (PAGE_LOCKS) {
+            pageLock = PAGE_LOCKS.get(key);
+            if (pageLock == null) {
+                pageLock = new PageLock();
+                PAGE_LOCKS.put(key, pageLock);
+            }
+            pageLock.users++;
+        }
+        pageLock.lock.lock();
+        PageLock acquired = pageLock;
+        return () -> {
+            acquired.lock.unlock();
+            synchronized (PAGE_LOCKS) {
+                if (--acquired.users == 0) {
+                    PAGE_LOCKS.remove(key);
+                }
+            }
+        };
+    }
 
     @NonNull
     private final GalleryInfo mGalleryInfo;
@@ -124,7 +166,8 @@ public final class SpiderDen {
 
     /**
      * Returns the gallery download folder if it already exists or is known in DB.
-     * Never creates a new folder. Safe to call from the UI thread when deleting downloads.
+     * Never creates a new folder. On the UI thread SAF returns a guessed path without listing;
+     * call off the UI thread to resolve the provider's actual document ID.
      */
     @Nullable
     public static UniFile getExistingGalleryDownloadDir(GalleryInfo galleryInfo) {
@@ -132,8 +175,39 @@ public final class SpiderDen {
         if (dir == null) {
             return null;
         }
-        String dirname = findDownloadDirname(galleryInfo, dir);
-        return dirname != null ? dir.subFile(dirname) : null;
+        if (UniFile.isFileUri(dir.getUri())) {
+            String dirname = findDownloadDirname(galleryInfo, dir);
+            return dirname != null ? dir.subFile(dirname) : null;
+        }
+        // Providers may use document IDs unrelated to display names.
+        if (Looper.getMainLooper().getThread() == Thread.currentThread()) {
+            String dirname = findDownloadDirname(galleryInfo, dir);
+            return dirname != null ? dir.subFile(dirname) : null;
+        }
+        try {
+            String dirname = EhDB.getDownloadDirname(galleryInfo.gid);
+            if (dirname != null) dirname = FileUtils.sanitizeFilename(dirname);
+            UniFile best = null;
+            String bestName = null;
+            UniFile[] files = dir.listFiles();
+            if (files != null) {
+                for (UniFile file : files) {
+                    String name = file.getName();
+                    if (name == null || !file.isDirectory()) continue;
+                    if (dirname != null ? dirname.equals(name) : name.startsWith(galleryInfo.gid + "-")) {
+                        if (bestName == null || name.length() > bestName.length()) {
+                            best = file;
+                            bestName = name;
+                        }
+                    }
+                }
+            }
+            if (best != null && dirname == null) EhDB.putDownloadDirname(galleryInfo.gid, bestName);
+            return best;
+        } catch (Exception e) {
+            android.util.Log.w("SpiderDen", "Failed to find existing download directory", e);
+            return null;
+        }
     }
 
     public static UniFile getGalleryDownloadDir(GalleryInfo galleryInfo) {
@@ -270,6 +344,22 @@ public final class SpiderDen {
 
     @Nullable
     public static UniFile findImageFile(UniFile dir, int index) {
+        if (!UniFile.isFileUri(dir.getUri())) {
+            try {
+                UniFile[] files = dir.listFiles();
+                if (files != null) {
+                    for (String extension : GalleryProvider2.SUPPORT_IMAGE_EXTENSIONS) {
+                        String filename = generateImageFilename(index, extension);
+                        for (UniFile file : files) {
+                            if (filename.equals(file.getName())) return file;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("SpiderDen", "Failed to find image file", e);
+            }
+            return null;
+        }
         for (String extension : GalleryProvider2.SUPPORT_IMAGE_EXTENSIONS) {
             String filename = generateImageFilename(index, extension);
             UniFile file = dir.findFile(filename);
@@ -302,6 +392,12 @@ public final class SpiderDen {
     }
 
     private boolean copyFromCacheToDownloadDir(int index) {
+        try (OriginalPageGuard ignored = lockOriginalPage(mGid, index)) {
+            return copyFromCacheToDownloadDirLocked(index);
+        }
+    }
+
+    private boolean copyFromCacheToDownloadDirLocked(int index) {
         if (sCache == null) {
             return false;
         }
@@ -387,9 +483,11 @@ public final class SpiderDen {
     }
 
     public boolean remove(int index) {
-        boolean result = removeFromCache(index);
-        result |= removeFromDownloadDir(index);
-        return result;
+        try (OriginalPageGuard ignored = lockOriginalPage(mGid, index)) {
+            boolean result = removeFromCache(index);
+            result |= removeFromDownloadDir(index);
+            return result;
+        }
     }
 
     @Nullable
@@ -427,6 +525,43 @@ public final class SpiderDen {
 
     @Nullable
     public OutputStreamPipe openOutputStreamPipe(int index, @Nullable String extension) {
+        OriginalPageGuard guard = lockOriginalPage(mGid, index);
+        boolean handedOff = false;
+        try {
+            OutputStreamPipe pipe = openOutputStreamPipeLocked(index, extension);
+            if (pipe == null) {
+                return null;
+            }
+            OutputStreamPipe guardedPipe = new OutputStreamPipe() {
+                @Override
+                public void obtain() { pipe.obtain(); }
+
+                @Override
+                public OutputStream open() throws IOException { return pipe.open(); }
+
+                @Override
+                public void close() { pipe.close(); }
+
+                @Override
+                public void release() {
+                    try {
+                        pipe.release();
+                    } finally {
+                        guard.close();
+                    }
+                }
+            };
+            handedOff = true;
+            return guardedPipe;
+        } finally {
+            if (!handedOff) {
+                guard.close();
+            }
+        }
+    }
+
+    @Nullable
+    private OutputStreamPipe openOutputStreamPipeLocked(int index, @Nullable String extension) {
         if (mMode == SpiderQueen.MODE_READ) {
             if (shouldSyncDownloadWhileReading() && ensureDownloadDirExists()) {
                 OutputStreamPipe pipe = openDownloadOutputStreamPipe(index, extension);

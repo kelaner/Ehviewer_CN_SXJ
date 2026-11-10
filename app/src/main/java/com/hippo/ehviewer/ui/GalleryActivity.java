@@ -68,6 +68,8 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.hippo.android.resource.AttrResources;
 import com.hippo.ehviewer.AppConfig;
+import com.hippo.ehviewer.EhApplication;
+import com.hippo.ehviewer.spider.SpiderDen;
 import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.Settings;
 import com.hippo.ehviewer.client.data.GalleryInfo;
@@ -76,6 +78,7 @@ import com.hippo.ehviewer.gallery.ArchiveGalleryProvider;
 import com.hippo.ehviewer.gallery.DirGalleryProvider;
 import com.hippo.ehviewer.gallery.EhGalleryProvider;
 import com.hippo.ehviewer.gallery.GalleryProvider2;
+import com.hippo.ehviewer.upscale.UpscaleStore;
 import com.hippo.ehviewer.widget.GalleryGuideView;
 import com.hippo.ehviewer.widget.GalleryHeader;
 import com.hippo.ehviewer.widget.ReversibleSeekBar;
@@ -145,6 +148,7 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
     private GalleryView mGalleryView;
     @Nullable
     private GalleryProvider2 mGalleryProvider;
+    private final java.util.Set<Integer> mUpscalingPages = new java.util.HashSet<>();
     @Nullable
     private GalleryAdapter mGalleryAdapter;
 
@@ -1138,20 +1142,73 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
 
         final CharSequence[] items;
         items = new CharSequence[]{getString(R.string.page_menu_refresh), getString(R.string.page_menu_share), getString(R.string.page_menu_save), getString(R.string.page_menu_save_to)};
-        pageDialogListener(builder, items, page);
-        builder.show();
+        if (mGalleryProvider instanceof EhGalleryProvider && mGalleryInfo != null &&
+                EhApplication.getDownloadManager(this).containDownloadInfo(mGalleryInfo.gid)) {
+            GalleryInfo info = mGalleryInfo;
+            GalleryProvider2 provider = mGalleryProvider;
+            new Thread(() -> {
+                UpscaleStore.DisplayState state = UpscaleStore.getDisplayState(getApplicationContext(), info, page);
+                Boolean targetOriginal = state == null ? null
+                        : state.showOriginal && state.upscaledAvailable ? Boolean.FALSE
+                        : !state.showOriginal && state.upscaledAvailable && state.originalAvailable ? Boolean.TRUE : null;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed() || mGalleryProvider != provider) return;
+                    CharSequence[] extended = targetOriginal == null
+                            ? new CharSequence[]{items[0], items[1], items[2], items[3], "超分当前页"}
+                            : new CharSequence[]{items[0], items[1], items[2], items[3], "超分当前页", targetOriginal ? "显示原图" : "显示超分图"};
+                    pageDialogListener(builder, extended, page, targetOriginal);
+                    builder.show();
+                });
+            }, "reader-upscale-menu").start();
+        } else {
+            pageDialogListener(builder, items, page, null);
+            builder.show();
+        }
     }
 
-    private void pageDialogListener(AlertDialog.Builder builder, CharSequence[] items, int page) {
+    private void upscalePage(int page) {
+        if (!(mGalleryProvider instanceof EhGalleryProvider) || mGalleryInfo == null || !mUpscalingPages.add(page)) {
+            Toast.makeText(this, "该页面正在处理", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final GalleryInfo info = mGalleryInfo;
+        final GalleryProvider2 provider = mGalleryProvider;
+        Toast.makeText(this, "正在准备超分", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            UniFile dir = SpiderDen.getExistingGalleryDownloadDir(info);
+            UniFile original = dir == null ? null : SpiderDen.findImageFile(dir, page);
+            runOnUiThread(() -> {
+                if (original == null) {
+                    mUpscalingPages.remove(page);
+                    if (!isFinishing() && !isDestroyed()) Toast.makeText(this, "下载原图不存在", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                UpscaleStore.requestPage(getApplicationContext(), info, page, original, (success, message) -> {
+                    mUpscalingPages.remove(page);
+                    if (success) {
+                        if (mGalleryProvider == provider) ((EhGalleryProvider) provider).refreshVariant(page);
+                    }
+                    if (!isFinishing() && !isDestroyed()) Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+                });
+            });
+        }, "reader-upscale-source").start();
+    }
+
+    private void pageDialogListener(AlertDialog.Builder builder, CharSequence[] items, int page, Boolean targetOriginal) {
         builder.setItems(items, (dialog, which) -> {
             if (mGalleryProvider == null) {
                 return;
             }
 
             switch (which) {
-                case 0: // Refresh
-                    mGalleryProvider.removeCache(page);
-                    mGalleryProvider.forceRequest(page);
+                case 0: // Reload without deleting downloaded originals.
+                    if (mGalleryProvider instanceof EhGalleryProvider && mGalleryInfo != null &&
+                            EhApplication.getDownloadManager(this).containDownloadInfo(mGalleryInfo.gid)) {
+                        ((EhGalleryProvider) mGalleryProvider).refreshVariant(page);
+                    } else {
+                        mGalleryProvider.removeCache(page);
+                        mGalleryProvider.forceRequest(page);
+                    }
                     break;
                 case 1: // Share
                     shareImage(page);
@@ -1161,6 +1218,25 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
                     break;
                 case 3: // Save to
                     saveImageTo(page);
+                    break;
+                case 4:
+                    upscalePage(page);
+                    break;
+                case 5:
+                    if (targetOriginal != null && mGalleryInfo != null && mGalleryProvider instanceof EhGalleryProvider) {
+                        GalleryInfo info = mGalleryInfo;
+                        GalleryProvider2 provider = mGalleryProvider;
+                        new Thread(() -> {
+                            String error = UpscaleStore.setDisplayVariant(getApplicationContext(), info, page, targetOriginal);
+                            runOnUiThread(() -> {
+                                if (error != null) {
+                                    if (!isFinishing() && !isDestroyed()) Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+                                } else if (mGalleryProvider == provider) {
+                                    ((EhGalleryProvider) provider).refreshVariant(page);
+                                }
+                            });
+                        }, "reader-upscale-toggle").start();
+                    }
                     break;
             }
         });
@@ -1381,7 +1457,10 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
         }
 
         private void onTapErrorText(int index) {
-            if (mGalleryProvider != null) {
+            if (mGalleryProvider instanceof EhGalleryProvider && mGalleryInfo != null &&
+                    EhApplication.getDownloadManager(GalleryActivity.this).containDownloadInfo(mGalleryInfo.gid)) {
+                ((EhGalleryProvider) mGalleryProvider).refreshVariant(index);
+            } else if (mGalleryProvider != null) {
                 mGalleryProvider.forceRequest(index);
             }
         }

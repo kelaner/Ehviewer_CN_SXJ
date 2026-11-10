@@ -162,7 +162,7 @@
                 style="@style/Widget.Design.FloatingActionButton.Mini"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:contentDescription="漫画超分"
+                android:contentDescription="超分"
                 app:backgroundTint="?attr/widgetColorThemeAccent"
                 app:srcCompat="@drawable/v_refresh_dark_x24" />
 

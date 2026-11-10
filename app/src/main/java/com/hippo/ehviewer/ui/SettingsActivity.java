@@ -34,7 +34,7 @@ import com.hippo.ehviewer.Settings;
 import com.hippo.ehviewer.ui.fragment.SettingsHeaders;
 import com.hippo.util.DrawableManager;
 
-public final class SettingsActivity extends EhActivity {
+public final class SettingsActivity extends EhActivity implements PreferenceFragmentCompat.OnPreferenceStartFragmentCallback {
 
     private static final int REQUEST_CODE_FRAGMENT = 0;
 
@@ -75,6 +75,23 @@ public final class SettingsActivity extends EhActivity {
                     .beginTransaction()
                     .replace(R.id.settings,new SettingsHeaders())
                     .commit();
+        }
+    }
+
+    @Override
+    public boolean onPreferenceStartFragment(@NonNull PreferenceFragmentCompat caller, @NonNull Preference preference) {
+        String fragmentName = preference.getFragment();
+        if (fragmentName == null || fragmentName.isEmpty()) return false;
+        try {
+            Class.forName(fragmentName);
+            getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.settings, getSupportFragmentManager().getFragmentFactory()
+                            .instantiate(getClassLoader(), fragmentName))
+                    .addToBackStack(fragmentName)
+                    .commit();
+            return true;
+        } catch (ClassNotFoundException | IllegalStateException e) {
+            return false;
         }
     }
 

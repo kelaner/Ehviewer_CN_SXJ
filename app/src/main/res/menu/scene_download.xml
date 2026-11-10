@@ -84,7 +84,7 @@
 
     <item
         android:id="@+id/download_upscale_queue"
-        android:title="漫画超分队列"
+        android:title="超分队列"
         app:showAsAction="never"/>
 
     <item

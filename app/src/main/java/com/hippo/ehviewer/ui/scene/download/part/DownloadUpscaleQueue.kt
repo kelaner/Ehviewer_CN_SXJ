@@ -72,6 +72,10 @@ object DownloadUpscaleQueue {
 
     fun resume(context: Context) {
         val app = context.applicationContext
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { resume(app) }
+            return
+        }
         if (!loaded) {
             loaded = true
             try {
@@ -137,7 +141,7 @@ object DownloadUpscaleQueue {
     fun showStatus(context: Context, prefix: String = "") {
         resume(context)
         val builder = AlertDialog.Builder(context)
-            .setTitle("漫画超分队列")
+            .setTitle("超分队列")
             .setView(queueView(context, prefix))
             .setPositiveButton(android.R.string.ok, null)
         if (canRetry()) builder.setNeutralButton("继续 / 重试") { _, _ ->
@@ -196,9 +200,13 @@ object DownloadUpscaleQueue {
             content.addView(this)
         }
         items.forEachIndexed { index, item ->
-            val info = EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)
+            val title = try {
+                EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)?.title
+            } catch (_: RuntimeException) {
+                null
+            }
             TextView(context).apply {
-                text = "${if (index == 0 && (running || waiting)) "处理中 · " else ""}${info?.title ?: "画廊 ${item.gid}"}\n${item.next}/${item.pages} 页 · ${item.config.displayName()}"
+                text = "${if (index == 0 && (running || waiting)) "处理中 · " else ""}${title ?: "画廊 ${item.gid}"}\n${item.next}/${item.pages} 页 · ${item.config.displayName()}"
                 setTypeface(typeface, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
                 setPadding(0, dp(14), 0, dp(4))
                 content.addView(this)
@@ -262,61 +270,70 @@ object DownloadUpscaleQueue {
             runNext(context)
             return
         }
-        val info = EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)
+        val info = try {
+            EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)
+        } catch (e: RuntimeException) {
+            pause(context, "读取下载记录失败：${e.message ?: e.javaClass.simpleName}")
+            return
+        }
         if (info == null || info.state != DownloadInfo.STATE_FINISH) {
             pause(context, "画廊 ${item.gid} 已不在下载列表或下载状态不再为完成")
             return
         }
         running = true
         val page = item.next
-        worker.execute {
-            try {
-                val status = UpscaleStore.getPageStatus(context, info, page)
-                val file = if (status == UpscaleStore.PageStatus.ABSENT) UpscaleStore.getCurrentSource(context, info, page) else null
-                main.post {
-                    if (status == UpscaleStore.PageStatus.VALID) {
-                        skipped++
-                        finishPage(context, item)
-                    } else if (status != UpscaleStore.PageStatus.ABSENT) {
-                        pause(context, "画廊 ${item.gid} 第 ${page + 1} 页的超分记录损坏或无法验证，请检查后重试")
-                    } else if (file == null) {
-                        pause(context, "画廊 ${item.gid} 第 ${page + 1} 页原图缺失，请恢复后重试或选择跳过", true)
-                    } else {
-                        try {
-                            UpscaleStore.requestPage(context, info, page, file, item.config) { success, message ->
-                                when {
-                                    success -> completed++
-                                    message.contains("该页已有超分结果") -> {
-                                        running = false
-                                        runNext(context)
-                                        return@requestPage
-                                    }
-                                    message == "该页面正在处理" -> {
-                                        running = false
-                                        waiting = true
-                                        main.postDelayed({
-                                            waiting = false
+        try {
+            worker.execute {
+                try {
+                    val status = UpscaleStore.getPageStatus(context, info, page)
+                    val file = if (status == UpscaleStore.PageStatus.ABSENT) UpscaleStore.getCurrentSource(context, info, page) else null
+                    main.post {
+                        if (status == UpscaleStore.PageStatus.VALID) {
+                            skipped++
+                            finishPage(context, item)
+                        } else if (status != UpscaleStore.PageStatus.ABSENT) {
+                            pause(context, "画廊 ${item.gid} 第 ${page + 1} 页的超分记录损坏或无法验证，请检查后重试")
+                        } else if (file == null) {
+                            pause(context, "画廊 ${item.gid} 第 ${page + 1} 页原图缺失，请恢复后重试或选择跳过", true)
+                        } else {
+                            try {
+                                UpscaleStore.requestPage(context, info, page, file, item.config) { success, message ->
+                                    when {
+                                        success -> completed++
+                                        message.contains("该页已有超分结果") -> {
+                                            running = false
                                             runNext(context)
-                                        }, 2000)
-                                        return@requestPage
+                                            return@requestPage
+                                        }
+                                        message == "该页面正在处理" -> {
+                                            running = false
+                                            waiting = true
+                                            main.postDelayed({
+                                                waiting = false
+                                                runNext(context)
+                                            }, 2000)
+                                            return@requestPage
+                                        }
+                                        else -> {
+                                            pause(context, "画廊 ${item.gid} 第 ${page + 1} 页：$message")
+                                            return@requestPage
+                                        }
                                     }
-                                    else -> {
-                                        pause(context, "画廊 ${item.gid} 第 ${page + 1} 页：$message")
-                                        return@requestPage
-                                    }
+                                    finishPage(context, item)
                                 }
-                                finishPage(context, item)
+                            } catch (e: Exception) {
+                                pause(context, "画廊 ${item.gid} 第 ${page + 1} 页：${e.message ?: e.javaClass.simpleName}")
                             }
-                        } catch (e: Exception) {
-                            pause(context, "画廊 ${item.gid} 第 ${page + 1} 页：${e.message}")
                         }
                     }
-                }
-            } catch (e: Exception) {
-                main.post {
-                    pause(context, "画廊 ${item.gid} 第 ${page + 1} 页读取失败：${e.message}")
+                } catch (e: Exception) {
+                    main.post {
+                        pause(context, "画廊 ${item.gid} 第 ${page + 1} 页读取失败：${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
             }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            pause(context, "超分队列执行器不可用：${e.message ?: "请重新打开下载页"}")
         }
     }
 

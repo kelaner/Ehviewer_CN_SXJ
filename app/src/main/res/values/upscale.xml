@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="upscale_settings_title">漫画超分</string>
+    <string name="upscale_settings_title">超分</string>
     <string name="upscale_model_preset">模型</string>
     <string name="upscale_scale">放大倍率</string>
     <string name="upscale_noise">Real-CUGAN 降噪</string>

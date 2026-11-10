@@ -29,6 +29,7 @@ public class UpscaleManageFragment extends PreferenceFragmentCompat {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Set<Long> selected = new HashSet<>();
+    private final List<CheckBoxPreference> checkBoxes = new ArrayList<>();
     private boolean busy;
 
     @Override
@@ -80,10 +81,13 @@ public class UpscaleManageFragment extends PreferenceFragmentCompat {
         PreferenceScreen screen = getPreferenceScreen();
         screen.removeAll();
         selected.clear();
+        checkBoxes.clear();
         if (entries.isEmpty()) {
             showMessage(getString(R.string.upscale_empty));
             return;
         }
+        addSelectionAction(screen, entries, true);
+        addSelectionAction(screen, entries, false);
         addDeleteAction(screen, false);
         addDeleteAction(screen, true);
         for (UpscaleStore.Entry entry : entries) {
@@ -98,8 +102,21 @@ public class UpscaleManageFragment extends PreferenceFragmentCompat {
                 else selected.remove(entry.galleryId);
                 return true;
             });
+            checkBoxes.add(item);
             screen.addPreference(item);
         }
+    }
+
+    private void addSelectionAction(PreferenceScreen screen, List<UpscaleStore.Entry> entries, boolean all) {
+        Preference action = new Preference(requireContext());
+        action.setTitle(all ? R.string.upscale_select_all : R.string.upscale_clear_selection);
+        action.setOnPreferenceClickListener(preference -> {
+            selected.clear();
+            if (all) for (UpscaleStore.Entry entry : entries) selected.add(entry.galleryId);
+            for (CheckBoxPreference checkBox : checkBoxes) checkBox.setChecked(all);
+            return true;
+        });
+        screen.addPreference(action);
     }
 
     private void addDeleteAction(PreferenceScreen screen, boolean original) {

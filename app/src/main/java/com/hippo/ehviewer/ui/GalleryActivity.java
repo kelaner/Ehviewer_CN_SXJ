@@ -163,6 +163,8 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
     @Nullable
     private TextView mProgress;
     @Nullable
+    private TextView mUpscaleBadge;
+    @Nullable
     private View mBattery;
     @Nullable
     private View mSeekBarPanel;
@@ -396,7 +398,13 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
         mMaskView = (ColorView) ViewUtils.$$(this, R.id.mask);
         mClock = ViewUtils.$$(this, R.id.clock);
         mProgress = (TextView) ViewUtils.$$(this, R.id.progress);
+        mUpscaleBadge = (TextView) ViewUtils.$$(this, R.id.upscale_badge);
         mBattery = ViewUtils.$$(this, R.id.battery);
+        if (mGalleryProvider instanceof EhGalleryProvider) {
+            ((EhGalleryProvider) mGalleryProvider).setVariantListener((index, upscaled) -> runOnUiThread(() -> {
+                if (index == mCurrentIndex) updateUpscaleBadge();
+            }));
+        }
         mClock.setVisibility(Settings.getShowClock() ? View.VISIBLE : View.GONE);
         mProgress.setVisibility(Settings.getShowProgress() ? View.VISIBLE : View.GONE);
         mBattery.setVisibility(Settings.getShowBattery() ? View.VISIBLE : View.GONE);
@@ -1415,6 +1423,14 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
         }
     }
 
+    private void updateUpscaleBadge() {
+        if (mUpscaleBadge == null) return;
+        boolean visible = com.hippo.ehviewer.upscale.UpscaleConfig.watermarkEnabled(this) &&
+                mGalleryProvider instanceof EhGalleryProvider &&
+                ((EhGalleryProvider) mGalleryProvider).isDisplayingUpscaled(mCurrentIndex);
+        mUpscaleBadge.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
     private class NotifyTask implements Runnable {
 
         public static final int KEY_LAYOUT_MODE = 0;
@@ -1485,6 +1501,7 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
                     GalleryActivity.this.mCurrentIndex = mValue;
                     updateSlider();
                     updateProgress();
+                    updateUpscaleBadge();
                     break;
                 case KEY_TAP_MENU_AREA:
                     onTapMenuArea();

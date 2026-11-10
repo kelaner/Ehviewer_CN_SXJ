@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AtomicFile;
+import android.text.TextUtils;
 import com.hippo.ehviewer.client.data.GalleryInfo;
 import com.hippo.unifile.UniFile;
 import org.json.JSONArray;
@@ -25,6 +26,7 @@ public final class UpscaleStore {
         public long galleryId, originalBytes, upscaledBytes;
         public int pageCount;
         public String title, modelPreset;
+        private final Set<String> models = new LinkedHashSet<>();
     }
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -90,6 +92,9 @@ public final class UpscaleStore {
         } catch (Exception | OutOfMemoryError e) { return false; }
     }
     public static void requestPage(Context context, GalleryInfo gallery, int page, UniFile original, Callback callback) {
+        requestPage(context, gallery, page, original, UpscaleConfig.from(context), callback);
+    }
+    public static void requestPage(Context context, GalleryInfo gallery, int page, UniFile original, UpscaleConfig config, Callback callback) {
         Context c = context.getApplicationContext(); String key = gallery.gid + ":" + page;
         if (!PENDING.add(key)) { MAIN.post(() -> callback.onComplete(false, "该页面正在处理")); return; }
         WORK.execute(() -> {
@@ -112,8 +117,8 @@ public final class UpscaleStore {
                         if ("image/gif".equals(bounds.outMimeType)) throw new IOException("暂不支持动画图片");
                         input = BitmapFactory.decodeFile(inputFile.getPath()); if (input == null) throw new IOException("无法解码原图");
                         if (input.getConfig() != Bitmap.Config.ARGB_8888) { Bitmap converted = input.copy(Bitmap.Config.ARGB_8888, false); input.recycle(); input = converted; }
-                        try (VulkanUpscaler engine = new VulkanUpscaler(c)) { scaled = engine.upscale(input); }
-                        if (scaled == null || scaled.getWidth() != input.getWidth() * 2 || scaled.getHeight() != input.getHeight() * 2) throw new IOException("超分输出尺寸异常");
+                        try (VulkanUpscaler engine = new VulkanUpscaler(c, config)) { scaled = engine.upscale(input); }
+                        if (scaled == null || scaled.getWidth() != input.getWidth() * config.scale || scaled.getHeight() != input.getHeight() * config.scale) throw new IOException("超分输出尺寸异常");
                         try (FileOutputStream out = new FileOutputStream(result)) { if (!scaled.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new IOException("保存失败"); out.getFD().sync(); }
                         if (!fullyDecodable(result)) throw new IOException("超分结果无法完整解码");
                         try (com.hippo.ehviewer.spider.SpiderDen.OriginalPageGuard guard = com.hippo.ehviewer.spider.SpiderDen.lockOriginalPage(gallery.gid, page)) {
@@ -122,7 +127,7 @@ public final class UpscaleStore {
                             if (!sourceHash.equals(hash(original.openInputStream()))) throw new IOException("处理期间原图已更改");
                             File target = output(c, gallery.gid, page), meta = metadata(c, gallery.gid, page);
                             if (target.exists() || meta.exists() || new File(meta.getPath() + ".bak").exists() || new File(meta.getPath() + ".new").exists()) throw new IOException("已有结果或恢复记录，请先检查");
-                            JSONObject m = new JSONObject(); m.put("gid", gallery.gid); m.put("title", gallery.title); m.put("page", page); m.put("model", "AnimeVideo v3 2×"); m.put("uri", original.getUri().toString()); m.put("originalHash", sourceHash); m.put("originalBytes", inputFile.length()); m.put("resultHash", hash(new FileInputStream(result))); m.put("showOriginal", false); m.put("pendingResult", result.getName());
+                            JSONObject m = new JSONObject(); m.put("gid", gallery.gid); m.put("title", gallery.title); m.put("page", page); m.put("model", config.displayName()); m.put("config", config.toJson()); m.put("uri", original.getUri().toString()); m.put("originalHash", sourceHash); m.put("originalBytes", inputFile.length()); m.put("resultHash", hash(new FileInputStream(result))); m.put("showOriginal", false); m.put("pendingResult", result.getName());
                             keepResult = true;
                             try { write(meta, m); }
                             catch (Exception e) { if (!meta.exists() && !new File(meta.getPath() + ".bak").exists() && !new File(meta.getPath() + ".new").exists()) keepResult = false; throw e; }
@@ -264,10 +269,11 @@ public final class UpscaleStore {
                     try { result = m != null ? resultFile(c, e.galleryId, page, m) : output(c, e.galleryId, page); }
                     catch (Exception ignored) { result = output(c, e.galleryId, page); }
                     e.title = m != null ? m.optString("title", Long.toString(e.galleryId)) : Long.toString(e.galleryId);
-                    e.modelPreset = m != null ? m.optString("model") : "";
+                    String model = m != null ? m.optString("model") : "";
+                    if (!model.isEmpty()) e.models.add(model);
                     e.pageCount++; e.originalBytes += m != null ? m.optLong("originalBytes") : 0; e.upscaledBytes += result.length();
                 }
-                if (e.pageCount > 0) entries.add(e);
+                if (e.pageCount > 0) { e.modelPreset = TextUtils.join("、", e.models); entries.add(e); }
             } return entries;
         }
     }

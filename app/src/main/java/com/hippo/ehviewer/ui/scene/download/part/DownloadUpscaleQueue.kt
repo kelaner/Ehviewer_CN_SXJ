@@ -3,10 +3,17 @@ package com.hippo.ehviewer.ui.scene.download.part
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Typeface
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import com.hippo.ehviewer.EhApplication
 import com.hippo.ehviewer.dao.DownloadInfo
+import com.hippo.ehviewer.upscale.UpscaleConfig
 import com.hippo.ehviewer.upscale.UpscaleStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,7 +25,7 @@ object DownloadUpscaleQueue {
     private const val KEY = "state"
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private data class Item(val gid: Long, val pages: Int, var next: Int = 0)
+    private data class Item(val gid: Long, val pages: Int, var next: Int = 0, val config: UpscaleConfig)
     private val items = mutableListOf<Item>()
     private var loaded = false
     private var running = false
@@ -92,7 +99,8 @@ object DownloadUpscaleQueue {
                     val pages = pagesValue.toInt()
                     val next = nextValue.toInt()
                     require(gid > 0 && pages > 0 && next in 0..pages && items.none { it.gid == gid })
-                    items.add(Item(gid, pages, next))
+                    val config = if (item.has("config")) UpscaleConfig.fromJson(item.getJSONObject("config")) else UpscaleConfig.from(app)
+                    items.add(Item(gid, pages, next, config))
                 }
             } catch (e: Exception) {
                 items.clear()
@@ -109,6 +117,7 @@ object DownloadUpscaleQueue {
         resume(app)
         if (storageError) return -1
         var added = 0
+        val config = UpscaleConfig.from(app)
         for (info in selected) {
             if (items.any { it.gid == info.gid }) continue
             if (info.state != DownloadInfo.STATE_FINISH || info.pages <= 0) {
@@ -116,7 +125,7 @@ object DownloadUpscaleQueue {
                 lastError = "画廊 ${info.gid} 未完成下载或缺少页数，未加入队列"
                 continue
             }
-            items.add(Item(info.gid, info.pages))
+            items.add(Item(info.gid, info.pages, config = config))
             added++
         }
         save(app)
@@ -129,13 +138,20 @@ object DownloadUpscaleQueue {
         resume(context)
         val builder = AlertDialog.Builder(context)
             .setTitle("漫画超分队列")
-            .setMessage(prefix + status())
+            .setView(queueView(context, prefix))
             .setPositiveButton(android.R.string.ok, null)
-        if (canRetry()) builder.setNeutralButton("重试") { _, _ ->
+        if (canRetry()) builder.setNeutralButton("继续 / 重试") { _, _ ->
             retry(context)
             showStatus(context)
+        } else if ((running || waiting || items.isNotEmpty()) && !storageError) {
+            builder.setNeutralButton("暂停") { _, _ ->
+                enginePaused = true
+                lastError = "用户暂停"
+                save(context.applicationContext)
+                showStatus(context)
+            }
         }
-        if (enginePaused && !storageError && items.isNotEmpty()) {
+        if (enginePaused && !running && !waiting && !storageError && items.isNotEmpty()) {
             builder.setNegativeButton("更多操作") { _, _ ->
                 val item = items.first()
                 AlertDialog.Builder(context)
@@ -167,6 +183,36 @@ object DownloadUpscaleQueue {
         builder.show()
     }
 
+    private fun queueView(context: Context, prefix: String): View {
+        val density = context.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(12))
+        }
+        TextView(context).apply {
+            text = prefix + status()
+            setTextIsSelectable(true)
+            content.addView(this)
+        }
+        items.forEachIndexed { index, item ->
+            val info = EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)
+            TextView(context).apply {
+                text = "${if (index == 0 && (running || waiting) thenMarker() else ""}${info?.title ?: "画廊 ${item.gid}"}\n${item.next}/${item.pages} 页 · ${item.config.displayName()}"
+                setTypeface(typeface, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
+                setPadding(0, dp(14), 0, dp(4))
+                content.addView(this)
+            }
+            content.addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = item.pages
+                progress = item.next
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)))
+        }
+        return ScrollView(context).apply { addView(content) }
+    }
+
+    private fun thenMarker() = "处理中 · "
+
     fun canRetry(): Boolean = enginePaused || storageError
 
     fun retry(context: Context) {
@@ -188,14 +234,14 @@ object DownloadUpscaleQueue {
 
     fun status(): String {
         val remaining = items.sumOf { (it.pages - it.next).coerceAtLeast(0) }
-        val state = if (storageError) "持久化异常，已暂停" else if (enginePaused) "遇到错误，已暂停" else if (waiting) "等待其他任务" else if (running) "处理中" else if (remaining > 0) "等待恢复" else "已结束"
+        val state = if (storageError) "持久化异常，已暂停" else if (enginePaused && running) "正在完成当前页，随后暂停" else if (enginePaused) "已暂停" else if (waiting) "等待其他任务" else if (running) "处理中" else if (remaining > 0) "等待恢复" else "已结束"
         return "$state：剩余 $remaining 页，成功 $completed 页，已有超分跳过 $skipped 页，确认跳过缺失 $missing 页，手动跳过 $userSkipped 页，失败 $failed 页；移除 $removed 本，未加入 $rejected 本" +
             if (lastError.isNotEmpty()) "\n最近错误：$lastError" else ""
     }
 
     private fun save(context: Context) {
         val array = JSONArray()
-        items.forEach { array.put(JSONObject().put("gid", it.gid).put("pages", it.pages).put("next", it.next)) }
+        items.forEach { array.put(JSONObject().put("gid", it.gid).put("pages", it.pages).put("next", it.next).put("config", it.config.toJson())) }
         val root = JSONObject().put("items", array).put("completed", completed).put("skipped", skipped)
             .put("rejected", rejected).put("missing", missing).put("failed", failed).put("lastError", lastError)
             .put("enginePaused", enginePaused).put("pausedMissing", pausedMissing)
@@ -237,7 +283,7 @@ object DownloadUpscaleQueue {
                         pause(context, "画廊 ${item.gid} 第 ${page + 1} 页原图缺失，请恢复后重试或选择跳过", true)
                     } else {
                         try {
-                            UpscaleStore.requestPage(context, info, page, file) { success, message ->
+                            UpscaleStore.requestPage(context, info, page, file, item.config) { success, message ->
                                 when {
                                     success -> completed++
                                     message.contains("该页已有超分结果") -> {

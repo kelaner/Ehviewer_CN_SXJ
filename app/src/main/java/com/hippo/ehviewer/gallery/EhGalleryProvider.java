@@ -40,6 +40,9 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
     private final GalleryInfo mGalleryInfo;
     private final ExecutorService mUpscaleReader = Executors.newSingleThreadExecutor();
     private final java.util.concurrent.ConcurrentHashMap<Integer, Integer> mPageVersions = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<Integer> mDisplayedUpscaled = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    @Nullable private VariantListener mVariantListener;
+    public interface VariantListener { void onDisplayedVariantChanged(int index, boolean upscaled); }
     // An original callback is accepted only after the current variant request chose it.
     private final java.util.HashMap<Integer, Integer> mOriginalRequests = new java.util.HashMap<>();
     private volatile boolean mStopped;
@@ -62,6 +65,8 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
     @Override
     public void stop() {
         mStopped = true;
+        mVariantListener = null;
+        mDisplayedUpscaled.clear();
         mUpscaleReader.shutdownNow();
         super.stop();
 
@@ -157,6 +162,14 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
         return !mStopped && mPageVersions.getOrDefault(index, 0) == version;
     }
 
+    public void setVariantListener(@Nullable VariantListener listener) { mVariantListener = listener; }
+    public boolean isDisplayingUpscaled(int index) { return mDisplayedUpscaled.contains(index); }
+    private void markDisplayed(int index, boolean upscaled) {
+        if (upscaled) mDisplayedUpscaled.add(index); else mDisplayedUpscaled.remove(index);
+        VariantListener listener = mVariantListener;
+        if (listener != null) SimpleHandler.getInstance().post(() -> listener.onDisplayedVariantChanged(index, upscaled));
+    }
+
     private boolean displayUpscaled(int index, int version, File file) {
         Image image;
         try (FileInputStream stream = new FileInputStream(file)) {
@@ -166,7 +179,7 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
         }
         if (image == null) return false;
         synchronized (mPageVersions) {
-            if (isCurrent(index, version)) notifyPageSucceed(index, image);
+            if (isCurrent(index, version)) { markDisplayed(index, true); notifyPageSucceed(index, image); }
             else image.recycle();
         }
         return true;
@@ -177,6 +190,7 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
         synchronized (mPageVersions) {
             mPageVersions.merge(index, 1, Integer::sum);
             mOriginalRequests.remove(index);
+            markDisplayed(index, false);
             removeCache(index);
             notifyDataChanged(index);
         }
@@ -263,6 +277,7 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
         synchronized (mPageVersions) {
             Integer requested = mOriginalRequests.get(index);
             if (requested != null && isCurrent(index, requested)) {
+                markDisplayed(index, false);
                 notifyPageSucceed(index, image);
             }
         }

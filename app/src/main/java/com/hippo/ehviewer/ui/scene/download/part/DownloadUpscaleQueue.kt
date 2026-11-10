@@ -198,7 +198,7 @@ object DownloadUpscaleQueue {
         items.forEachIndexed { index, item ->
             val info = EhApplication.getDownloadManager(context).getDownloadInfo(item.gid)
             TextView(context).apply {
-                text = "${if (index == 0 && (running || waiting) thenMarker() else ""}${info?.title ?: "画廊 ${item.gid}"}\n${item.next}/${item.pages} 页 · ${item.config.displayName()}"
+                text = "${if (index == 0 && (running || waiting)) "处理中 · " else ""}${info?.title ?: "画廊 ${item.gid}"}\n${item.next}/${item.pages} 页 · ${item.config.displayName()}"
                 setTypeface(typeface, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
                 setPadding(0, dp(14), 0, dp(4))
                 content.addView(this)

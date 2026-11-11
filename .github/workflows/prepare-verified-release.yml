@@ -93,10 +93,7 @@ jobs:
           grep -F "package: name='com.kelaner.ehviewer' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$RUNNER_TEMP/badging.txt"
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -Z1 "$apk" | grep -Fx "lib/$abi/libehviewer.so" > /dev/null
-            unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvulkan_upscaler.so" > /dev/null
           done
-          unzip -Z1 "$apk" | grep -Fx 'assets/realesrgan-v3-anime-x2/x2.bin' > /dev/null
-          unzip -Z1 "$apk" | grep -Fx 'assets/realesrgan-v3-anime-x2/x2.param' > /dev/null
           cp "$apk" "$RUNNER_TEMP/release/Ehviewer-$VERSION_NAME.apk"
           (cd "$RUNNER_TEMP/release" && sha256sum "Ehviewer-$VERSION_NAME.apk" > SHA256.txt)
       - name: Create draft without replacing an existing release

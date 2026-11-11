@@ -20,7 +20,6 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.hippo.ehviewer.client.data.GalleryInfo;
-import com.hippo.ehviewer.EhApplication;
 import com.hippo.ehviewer.spider.SpiderQueen;
 import com.hippo.lib.glgallery.GalleryProvider;
 import com.hippo.lib.image.Image;
@@ -28,24 +27,11 @@ import com.hippo.lib.image.Image;
 import com.hippo.unifile.UniFile;
 import com.hippo.lib.yorozuya.SimpleHandler;
 import java.util.Locale;
-import java.io.File;
-import java.io.FileInputStream;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import com.hippo.ehviewer.upscale.UpscaleStore;
 
 public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.OnSpiderListener {
 
     private final Context mContext;
     private final GalleryInfo mGalleryInfo;
-    private final ExecutorService mUpscaleReader = Executors.newSingleThreadExecutor();
-    private final java.util.concurrent.ConcurrentHashMap<Integer, Integer> mPageVersions = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.Set<Integer> mDisplayedUpscaled = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    @Nullable private VariantListener mVariantListener;
-    public interface VariantListener { void onDisplayedVariantChanged(int index, boolean upscaled); }
-    // An original callback is accepted only after the current variant request chose it.
-    private final java.util.HashMap<Integer, Integer> mOriginalRequests = new java.util.HashMap<>();
-    private volatile boolean mStopped;
     @Nullable
     private SpiderQueen mSpiderQueen;
 
@@ -64,10 +50,6 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     public void stop() {
-        mStopped = true;
-        mVariantListener = null;
-        mDisplayedUpscaled.clear();
-        mUpscaleReader.shutdownNow();
         super.stop();
 
         if (mSpiderQueen != null) {
@@ -130,77 +112,20 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     protected void onRequest(int index) {
-        int version = mPageVersions.getOrDefault(index, 0);
-        try {
-            mUpscaleReader.execute(() -> {
-            if (!isCurrent(index, version)) return;
-            File file = getUpscaledFile(index);
-            if (file != null && displayUpscaled(index, version, file)) return;
-            SpiderQueen queen = mSpiderQueen;
-            synchronized (mPageVersions) {
-                if (queen == null || !isCurrent(index, version)) return;
-                mOriginalRequests.put(index, version);
+        if (mSpiderQueen != null) {
+            Object object = mSpiderQueen.request(index);
+            if (object instanceof Float) {
+                notifyPagePercent(index, (Float) object);
+            } else if (object instanceof String) {
+                notifyPageFailed(index, (String) object);
+            } else if (object == null) {
+                notifyPageWait(index);
             }
-            if (isCurrent(index, version)) {
-                Object object = queen.request(index);
-                if (object instanceof Float) notifyPagePercent(index, (Float) object);
-                else if (object instanceof String) notifyPageFailed(index, (String) object);
-                else if (object == null) notifyPageWait(index);
-            }
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // The reader has already closed.
-        }
-    }
-
-    private File getUpscaledFile(int index) {
-        if (!EhApplication.getDownloadManager(mContext).containDownloadInfo(mGalleryInfo.gid)) return null;
-        return UpscaleStore.getDisplayFile(mContext, mGalleryInfo, index);
-    }
-
-    private boolean isCurrent(int index, int version) {
-        return !mStopped && mPageVersions.getOrDefault(index, 0) == version;
-    }
-
-    public void setVariantListener(@Nullable VariantListener listener) { mVariantListener = listener; }
-    public boolean isDisplayingUpscaled(int index) { return mDisplayedUpscaled.contains(index); }
-    private void markDisplayed(int index, boolean upscaled) {
-        if (upscaled) mDisplayedUpscaled.add(index); else mDisplayedUpscaled.remove(index);
-        VariantListener listener = mVariantListener;
-        if (listener != null) SimpleHandler.getInstance().post(() -> listener.onDisplayedVariantChanged(index, upscaled));
-    }
-
-    private boolean displayUpscaled(int index, int version, File file) {
-        Image image;
-        try (FileInputStream stream = new FileInputStream(file)) {
-            image = Image.decode(stream, false);
-        } catch (Exception e) {
-            return false;
-        }
-        if (image == null) return false;
-        synchronized (mPageVersions) {
-            if (isCurrent(index, version)) { markDisplayed(index, true); notifyPageSucceed(index, image); }
-            else image.recycle();
-        }
-        return true;
-    }
-
-    /** Refresh the chosen variant without redownloading or deleting the original. */
-    public void refreshVariant(int index) {
-        synchronized (mPageVersions) {
-            mPageVersions.merge(index, 1, Integer::sum);
-            mOriginalRequests.remove(index);
-            markDisplayed(index, false);
-            removeCache(index);
-            notifyDataChanged(index);
         }
     }
 
     @Override
     protected void onForceRequest(int index) {
-        synchronized (mPageVersions) {
-            mOriginalRequests.put(index, mPageVersions.getOrDefault(index, 0));
-        }
         if (mSpiderQueen != null) {
             Object object = mSpiderQueen.forceRequest(index);
             if (object instanceof Float) {
@@ -241,11 +166,8 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     public void onPageDownload(int index, long contentLength, long receivedSize, int bytesRead) {
-        synchronized (mPageVersions) {
-            Integer requested = mOriginalRequests.get(index);
-            if (requested != null && isCurrent(index, requested) && contentLength > 0) {
-                notifyPagePercent(index, (float) receivedSize / contentLength);
-            }
+        if (contentLength > 0) {
+            notifyPagePercent(index, (float) receivedSize / contentLength);
         }
     }
 
@@ -256,14 +178,7 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     public void onPageFailure(int index, String error, int finished, int downloaded, int total) {
-        notifyOriginalFailure(index, error);
-    }
-
-    private void notifyOriginalFailure(int index, String error) {
-        synchronized (mPageVersions) {
-            Integer requested = mOriginalRequests.get(index);
-            if (requested != null && isCurrent(index, requested)) notifyPageFailed(index, error);
-        }
+        notifyPageFailed(index, error);
     }
 
     @Override
@@ -272,20 +187,12 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     public void onGetImageSuccess(int index, Image image) {
-        // SpiderQueen shares this image with its listeners. Do not retain or recycle
-        // it when the current request chose the enhanced variant.
-        synchronized (mPageVersions) {
-            Integer requested = mOriginalRequests.get(index);
-            if (requested != null && isCurrent(index, requested)) {
-                markDisplayed(index, false);
-                notifyPageSucceed(index, image);
-            }
-        }
+        notifyPageSucceed(index, image);
     }
 
     @Override
     public void onGetImageFailure(int index, String error) {
-        notifyOriginalFailure(index, error);
+        notifyPageFailed(index, error);
     }
 
     private static class ReleaseTask implements Runnable {

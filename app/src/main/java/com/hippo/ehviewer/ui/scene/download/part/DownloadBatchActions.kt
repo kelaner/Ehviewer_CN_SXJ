@@ -94,7 +94,7 @@ class DownloadBatchActions(private val mHost: Host) {
             var gidList: LongList? = null
             var downloadInfoList: MutableList<DownloadInfo?>? = null
             val collectGid = position == 1 || position == 2 || position == 3 // Start, Stop, Delete
-            val collectDownloadInfo = position == 3 || position == 4 || position == 5 || position == 8 // Delete, Move, Refresh or Upscale
+            val collectDownloadInfo = position == 3 || position == 4 || position == 5 // Delete, Move or Refresh
             if (collectGid) {
                 gidList = LongList()
             }
@@ -214,15 +214,6 @@ class DownloadBatchActions(private val mHost: Host) {
                 }
 
                 7 -> setDragEnable(fab)
-
-                8 -> {
-                    val selected = downloadInfoList!!.filterNotNull()
-                    if (selected.isEmpty()) return
-                    val added = DownloadUpscaleQueue.enqueue(context, selected)
-                    val message = if (added < 0) "队列保存失败，入队结果尚未持久化。\n" else "已加入 $added 本漫画。\n"
-                    DownloadUpscaleQueue.showStatus(context, message)
-                    recyclerView.outOfCustomChoiceMode()
-                }
             }
         }
     }

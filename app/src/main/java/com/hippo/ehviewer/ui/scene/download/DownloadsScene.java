@@ -721,14 +721,6 @@ public class DownloadsScene extends ToolbarScene
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        view.post(() -> {
-            if (!isAdded() || getView() != view) return;
-            try {
-                com.hippo.ehviewer.ui.scene.download.part.DownloadUpscaleQueue.INSTANCE.resume(view.getContext());
-            } catch (RuntimeException e) {
-                android.util.Log.e("DownloadsScene", "Unable to resume upscale queue", e);
-            }
-        });
         updateTitle();
         setNavigationIcon(R.drawable.v_arrow_left_dark_x24);
     }
@@ -785,15 +777,6 @@ public class DownloadsScene extends ToolbarScene
 
         int id = item.getItemId();
         switch (id) {
-            case R.id.download_upscale_queue: {
-                try {
-                    com.hippo.ehviewer.ui.scene.download.part.DownloadUpscaleQueue.showStatus(activity, "");
-                } catch (RuntimeException e) {
-                    android.util.Log.e("DownloadsScene", "Unable to show upscale queue", e);
-                    android.widget.Toast.makeText(activity, "超分队列暂时不可用，请稍后重试", android.widget.Toast.LENGTH_SHORT).show();
-                }
-                return true;
-            }
             case R.id.download_view_mode: {
                 if (mDragDropManager != null) mDragDropManager.cancelDrag();
                 mThumbnailMode = !mThumbnailMode;

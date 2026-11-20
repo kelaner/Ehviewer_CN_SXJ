@@ -726,6 +726,12 @@ public class DownloadsScene extends ToolbarScene
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        if (downloadLabelDraw != null) downloadLabelDraw.refreshSubscriptions();
+    }
+
+    @Override
     public void onDestroyView() {
         if (mRefreshDialog != null) {
             mRefreshDialog.stop();

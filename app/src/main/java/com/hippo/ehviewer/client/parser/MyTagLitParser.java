@@ -32,7 +32,7 @@ public class MyTagLitParser {
             Element element = document.getElementById("usertags_outer");
 
             if (element == null){
-                return list;
+                throw new EhException("订阅列表页面无效");
             }
 
             Elements tags = element.children();
@@ -44,7 +44,10 @@ public class MyTagLitParser {
                     list.userTags.add(parserUserTag(tag));
                 }
             }
-        }catch (Exception ignored){
+        } catch (EhException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new EhException("订阅列表解析失败", e);
         }
 
 
@@ -68,7 +71,7 @@ public class MyTagLitParser {
         Element hideInput = tag.getElementById(hideId);
 
         if (watchInput != null ){
-            userTag.watched = Objects.equals(watchInput.attr("checked"), "checked");
+            userTag.watched = watchInput.hasAttr("checked");
         }else{
             userTag.watched = false;
         }
@@ -83,10 +86,7 @@ public class MyTagLitParser {
 
         String weightId = "tagweight" + id;
         String weightString = tag.getElementById(weightId).attr("value");
-        if (weightString.isEmpty()){
-            userTag.tagWeight = 0;
-        }
-        userTag.tagWeight = Integer.parseInt(weightString);
+        userTag.tagWeight = weightString.isEmpty() ? 0 : Integer.parseInt(weightString);
 
         return  userTag;
     }

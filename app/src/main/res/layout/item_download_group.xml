@@ -7,6 +7,10 @@
     <TextView android:id="@+id/text1" android:layout_width="0dp" android:layout_height="wrap_content"
         android:layout_weight="1" android:paddingStart="16dp" android:paddingEnd="8dp"
         android:textAppearance="?attr/textAppearanceListItemSmall" />
+    <TextView android:id="@+id/download_group_markers" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:paddingStart="4dp" android:paddingEnd="8dp" android:textAppearance="?attr/textAppearanceListItemSmall"
+        android:background="?attr/selectableItemBackgroundBorderless" android:clickable="true" android:focusable="true"
+        android:contentDescription="@string/download_group_like_author" />
     <TextView android:id="@+id/text2" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:paddingStart="8dp" android:paddingEnd="16dp" android:textAppearance="?attr/textAppearanceListItemSmall" />
     <androidx.appcompat.widget.AppCompatImageView android:id="@+id/download_label_menu"

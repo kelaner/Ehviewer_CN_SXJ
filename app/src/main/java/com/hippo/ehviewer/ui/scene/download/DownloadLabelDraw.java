@@ -18,8 +18,11 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.hippo.app.EditTextDialogBuilder;
+import com.hippo.ehviewer.EhApplication;
 import com.hippo.ehviewer.R;
 import com.hippo.ehviewer.Settings;
+import com.hippo.ehviewer.client.data.userTag.UserTag;
+import com.hippo.ehviewer.client.data.userTag.UserTagList;
 import com.hippo.ehviewer.dao.DownloadInfo;
 import com.hippo.ehviewer.dao.DownloadLabel;
 import com.hippo.ehviewer.download.DownloadManager;
@@ -52,10 +55,17 @@ public class DownloadLabelDraw {
         final String key;
         final String title;
         final long count;
+        final String artist;
+        final boolean subscribed;
         Group(String key, String title, long count) {
+            this(key, title, count, false);
+        }
+        Group(String key, String title, long count, boolean subscribed) {
             this.key = key;
             this.title = title;
             this.count = count;
+            this.artist = key.startsWith("artist:") ? key.substring(7) : null;
+            this.subscribed = subscribed;
         }
         boolean editable() { return key.startsWith("label:"); }
     }
@@ -167,8 +177,22 @@ public class DownloadLabelDraw {
             }
             groups.add(new Group("@unknown", context.getString(R.string.unknown), unknown.size()));
             List<Group> metadata = new ArrayList<>();
+            UserTagList userTagList = EhApplication.getUserTagList(context);
+            Set<String> subscribedArtists = new HashSet<>();
+            if (userTagList != null && userTagList.userTags != null) {
+                for (UserTag userTag : userTagList.userTags) {
+                    if (userTag.watched && userTag.tagName != null
+                            && userTag.tagName.toLowerCase(java.util.Locale.ROOT).startsWith("artist:")) {
+                        subscribedArtists.add(userTag.tagName.substring(7).trim()
+                                .toLowerCase(java.util.Locale.ROOT));
+                    }
+                }
+            }
             for (Map.Entry<String, Set<Long>> entry : members.entrySet()) {
-                metadata.add(new Group(entry.getKey(), tags.get(entry.getKey()).getDisplayName(context), entry.getValue().size()));
+                String key = entry.getKey();
+                boolean subscribed = key.startsWith("artist:")
+                        && subscribedArtists.contains(key.substring(7).trim().toLowerCase(java.util.Locale.ROOT));
+                metadata.add(new Group(key, tags.get(key).getDisplayName(context), entry.getValue().size(), subscribed));
             }
             Collections.sort(metadata, (left, right) -> {
                 int count = Long.compare(right.count, left.count);
@@ -244,12 +268,14 @@ public class DownloadLabelDraw {
         final TextView count;
         final View handle;
         final View menu;
+        final TextView markers;
         GroupHolder(View view) {
             super(view);
             name = view.findViewById(R.id.text1);
             count = view.findViewById(R.id.text2);
             handle = view.findViewById(R.id.drag_handler);
             menu = view.findViewById(R.id.download_label_menu);
+            markers = view.findViewById(R.id.download_group_markers);
         }
     }
 
@@ -261,6 +287,23 @@ public class DownloadLabelDraw {
         @Override public void onBindViewHolder(@NonNull GroupHolder holder, int position) {
             Group group = groups.get(position);
             holder.name.setText(group.title);
+            boolean liked = group.artist != null
+                    && "true".equals(DownloadTags.getConfig("liked_artist_" + group.artist.toLowerCase(java.util.Locale.ROOT), "false"));
+            StringBuilder markers = new StringBuilder();
+            if (liked) markers.append("❤");
+            if (group.subscribed) markers.append("⭐");
+            holder.markers.setText(group.artist != null
+                    ? (liked ? "❤" : "♡") + (group.subscribed ? " ⭐" : "")
+                    : markers);
+            holder.markers.setVisibility(group.artist != null || markers.length() > 0 ? View.VISIBLE : View.GONE);
+            holder.markers.setOnClickListener(v -> {
+                if (group.artist == null) return;
+                boolean next = !"true".equals(DownloadTags.getConfig("liked_artist_"
+                        + group.artist.toLowerCase(java.util.Locale.ROOT), "false"));
+                DownloadTags.setConfig("liked_artist_" + group.artist.toLowerCase(java.util.Locale.ROOT),
+                        next ? "true" : null);
+                updateDownloadLabels();
+            });
             holder.count.setText(Long.toString(group.count));
             holder.name.setTypeface(null, group.key.equals(scene.getGroupSelection())
                     ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);

@@ -1006,4 +1006,5 @@
     <string name="import_album_already_imported">相册已导入</string>
     <string name="import_album_success">成功导入 %d 张图片</string>
 
+    <string name="download_group_like_author">喜欢/取消喜欢作者</string>
 </resources>

@@ -12,6 +12,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.Toolbar;
 import androidx.viewpager.widget.ViewPager;
 
@@ -226,7 +227,7 @@ public class SubscriptionDraw {
         progressView.setVisibility(View.VISIBLE);
         frameLayout.setVisibility(View.GONE);
 
-        EhClient.Callback<UserTagList> callback = new SubscriptionDetailListener(context, activity.getStageId(), mTag);
+        EhClient.Callback<UserTagList> callback = new SubscriptionDetailListener(context, activity.getStageId(), mTag, tagState);
 
         TagPushParam param = new TagPushParam();
 
@@ -258,7 +259,7 @@ public class SubscriptionDraw {
             return false;
         }
 
-        EhClient.Callback<UserTagList> callback = new SubscriptionDetailListener(context, activity.getStageId(), mTag);
+        EhClient.Callback<UserTagList> callback = new SubscriptionDetailListener(context, activity.getStageId(), mTag, null);
 
         EhRequest mRequest = new EhRequest()
                 .setMethod(EhClient.METHOD_GET_WATCHED)
@@ -280,8 +281,11 @@ public class SubscriptionDraw {
 
     private class SubscriptionDetailListener extends EhCallback<GalleryListScene, UserTagList> {
 
-        public SubscriptionDetailListener(Context context, int stageId, String sceneTag) {
+        private final Boolean addingWatched;
+
+        public SubscriptionDetailListener(Context context, int stageId, String sceneTag, Boolean addingWatched) {
             super(context, stageId, sceneTag);
+            this.addingWatched = addingWatched;
         }
 
         @Override
@@ -299,13 +303,33 @@ public class SubscriptionDraw {
                 userTagList = result;
             }
             EhApplication.saveUserTagList(context, userTagList);
+            if (Boolean.TRUE.equals(addingWatched) && result != null && result.userTags != null) {
+                int watched = 0;
+                for (UserTag tag : result.userTags) {
+                    if (tag.watched) watched++;
+                }
+                String message = context.getString(R.string.subscription_count, watched, result.userTags.size());
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show();
+            }
             bindViewSecond();
             needLoad = false;
         }
 
         @Override
         public void onFailure(Exception e) {
-
+            if (addingWatched != null) {
+                progressView.setVisibility(View.GONE);
+                frameLayout.setVisibility(View.VISIBLE);
+                if (addingWatched) {
+                    new AlertDialog.Builder(context)
+                            .setMessage(context.getString(R.string.subscription_failure_guidance,
+                                    e.getLocalizedMessage() == null ? "" : e.getLocalizedMessage()))
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                } else {
+                    Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }
         }
 
         @Override

@@ -158,11 +158,22 @@ class GalleryListSceneDialog(val baseScene: BaseScene) {
                     R.string.subscription_hidden
                 )
             val msg = context.getString(R.string.subscription_success, state)
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            val tags = result?.userTags
+            val message = if (tagState && tags != null) {
+                context.getString(R.string.subscription_count, tags.count { it.watched }, tags.size)
+            } else msg
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
 
         override fun onFailure(e: Exception) {
-            Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
+            if (tagState && context != null) {
+                AlertDialog.Builder(context)
+                    .setMessage(context.getString(R.string.subscription_failure_guidance, e.localizedMessage ?: ""))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            } else {
+                Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
+            }
         }
 
         override fun onCancel() {

@@ -1343,7 +1343,7 @@ public class EhEngine {
                     return result;
                 }
             }
-            throw new EhException("网站未确认添加该标签，请检查标签集或网站提示后重试");
+            throw new EhException("网站未确认添加标签");
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);
             throwException(call, code, headers, body, e);

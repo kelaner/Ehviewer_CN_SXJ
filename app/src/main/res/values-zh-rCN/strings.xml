@@ -884,6 +884,8 @@
     <string name="tag_title">标签栏</string>
     <string name="empty_subscription">订阅内容为空</string>
     <string name="subscription_success">%s成功</string>
+    <string name="subscription_count">订阅成功：%1$d/%2$d/100</string>
+    <string name="subscription_failure_guidance">订阅失败：%1$s\n请检查网络或标签集（上限 100 个）。</string>
 
     <!-- 下载通知   -->
     <string name="download_torrent_name">种子: %s</string>

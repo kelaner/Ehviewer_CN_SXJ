@@ -1314,7 +1314,7 @@ public class EhEngine {
     public static UserTagList addTag(EhClient.Task task, OkHttpClient okHttpClient, String url, TagPushParam param) throws Throwable {
 
         if (!Settings.isLogin()) {
-            return null;
+            throw new EhException("请先登录后再添加标签");
         }
         Log.d(TAG, url);
 
@@ -1335,12 +1335,19 @@ public class EhEngine {
             assert response.body() != null;
             body = response.body().string();
 
-            return MyTagLitParser.parse(body);
+            UserTagList result = MyTagLitParser.parse(body);
+            for (UserTag tag : result.userTags) {
+                if (tag.tagName != null && tag.tagName.trim().equalsIgnoreCase(param.tagNameNew.trim())
+                        && (("on".equals(param.tagWatchNew) && tag.watched)
+                        || ("on".equals(param.tagHiddenNew) && tag.hidden))) {
+                    return result;
+                }
+            }
+            throw new EhException("网站未确认添加该标签，请检查标签集或网站提示后重试");
         } catch (Throwable e) {
             ExceptionUtils.throwIfFatal(e);
             throwException(call, code, headers, body, e);
-            return null;
-//            throw e;
+            throw e;
         }
 
     }

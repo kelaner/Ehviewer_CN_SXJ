@@ -32,22 +32,14 @@ public class TagPushParam {
     }
 
     private String getEncodeTagName() {
-        String tagName = tagNameNew;
-
-        tagName.replace(":", "%3A");
-        tagName.replace(" ", "+");
-
-        return tagName;
+        return android.net.Uri.encode(tagNameNew);
     }
 
     private String getEncodeColorName() {
         if (tagColorNew == null) {
             return "";
         }
-        String tagColor = tagColorNew;
-        tagColor.replace("#", "%23");
-
-        return tagColor;
+        return android.net.Uri.encode(tagColorNew);
     }
 
 }

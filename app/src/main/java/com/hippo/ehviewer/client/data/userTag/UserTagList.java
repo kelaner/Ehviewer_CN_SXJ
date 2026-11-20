@@ -10,6 +10,8 @@ import java.util.List;
 public class UserTagList implements Parcelable {
 
     public List<UserTag> userTags;
+    public List<String> tagSetIds = new ArrayList<>();
+    public String currentTagSetId;
     public int stageId;
     public UserTagList() {
         userTags = new ArrayList<>();

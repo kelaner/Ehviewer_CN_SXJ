@@ -2,10 +2,6 @@ package com.hippo.ehviewer.ui.scene.download;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Color;
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -149,20 +145,37 @@ public class DownloadLabelDraw {
     public void refreshSubscriptions() {
         if (refreshingSubscriptions || !Settings.isLogin()) return;
         refreshingSubscriptions = true;
+        fetchSubscriptions(EhUrl.getMyTag(), new ArrayList<>(), new HashSet<>(), null);
+    }
+
+    private void fetchSubscriptions(String url, List<String> remaining, Set<String> artists, @Nullable String expectedSet) {
         EhRequest request = new EhRequest().setMethod(EhClient.METHOD_GET_WATCHED)
-                .setArgs(EhUrl.getMyTag()).setCallback(new EhClient.Callback<UserTagList>() {
+                .setArgs(url).setCallback(new EhClient.Callback<UserTagList>() {
                     @Override public void onSuccess(UserTagList result) {
-                        refreshingSubscriptions = false;
-                        if (result == null || result.userTags == null) return;
-                        Set<String> artists = new HashSet<>();
+                        if (result == null || result.userTags == null || result.tagSetIds.isEmpty()
+                                || result.currentTagSetId == null
+                                || (expectedSet != null && !expectedSet.equals(result.currentTagSetId))) {
+                            refreshingSubscriptions = false;
+                            return;
+                        }
+                        if (expectedSet == null) {
+                            remaining.addAll(result.tagSetIds);
+                            remaining.remove(result.currentTagSetId);
+                        }
                         for (UserTag tag : result.userTags) {
                             if (tag.watched && tag.tagName != null
                                     && tag.tagName.toLowerCase(java.util.Locale.ROOT).startsWith("artist:")) {
                                 artists.add(tag.tagName.substring(7).trim().toLowerCase(java.util.Locale.ROOT));
                             }
                         }
+                        if (!remaining.isEmpty()) {
+                            String next = remaining.remove(0);
+                            fetchSubscriptions(EhUrl.getMyTag() + "?tagset=" + next, remaining, artists, next);
+                            return;
+                        }
                         context.getSharedPreferences("download_watched_artists", Context.MODE_PRIVATE)
                                 .edit().putStringSet("artists", artists).apply();
+                        refreshingSubscriptions = false;
                         updateDownloadLabels();
                     }
                     @Override public void onFailure(Exception e) { refreshingSubscriptions = false; }
@@ -314,10 +327,7 @@ public class DownloadLabelDraw {
             holder.name.setText(group.title);
             boolean liked = group.artist != null
                     && "true".equals(DownloadTags.getConfig("liked_artist_" + group.artist.toLowerCase(java.util.Locale.ROOT), "false"));
-            SpannableString markers = new SpannableString((group.subscribed ? "⭐ " : "") + "♥");
-            markers.setSpan(new ForegroundColorSpan(liked ? Color.RED : Color.GRAY),
-                    markers.length() - 1, markers.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            holder.markers.setText(markers);
+            holder.markers.setText((group.subscribed ? "⭐ " : "") + (liked ? "❤️" : "🤍"));
             holder.markers.setVisibility(group.artist != null ? View.VISIBLE : View.GONE);
             holder.markers.setOnClickListener(v -> {
                 if (group.artist == null) return;

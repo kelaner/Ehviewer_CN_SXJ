@@ -23,6 +23,20 @@ public class MyTagLitParserTest {
         assertTrue(result.userTags.get(1).watched);
     }
 
+    @Test
+    public void readsAvailableAndSelectedTagSets() throws Exception {
+        String html = "<div id='tagset_outer'><select>"
+                + "<option value='1'>First</option><option value='2' selected>Second</option>"
+                + "</select></div><div id='usertags_outer'><div id='usertag_0'></div>"
+                + "<div id='usertag_42'><div id='tagpreview_42' title='artist:hatome'></div>"
+                + "<input id='tagwatch_42' checked><input id='tagcolor_42'><input id='tagweight_42' value='10'></div></div>";
+        UserTagList result = MyTagLitParser.parse(html);
+        assertEquals(java.util.Arrays.asList("1", "2"), result.tagSetIds);
+        assertEquals("2", result.currentTagSetId);
+        assertEquals("artist:hatome", result.userTags.get(0).tagName);
+        assertTrue(result.userTags.get(0).watched);
+    }
+
     @Test(expected = EhException.class)
     public void rejectsPageWithoutSubscriptionList() throws Exception {
         MyTagLitParser.parse("<html><body>Login required</body></html>");

@@ -10,7 +10,6 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.util.ArrayList;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,6 +28,15 @@ public class MyTagLitParser {
 
         try{
             Document document = Jsoup.parse(body);
+            Element select = document.selectFirst("#tagset_outer select");
+            if (select != null) {
+                for (Element option : select.select("option[value]")) {
+                    String id = option.attr("value");
+                    if (!id.matches("[0-9]+")) continue;
+                    list.tagSetIds.add(id);
+                    if (option.hasAttr("selected")) list.currentTagSetId = id;
+                }
+            }
             Element element = document.getElementById("usertags_outer");
 
             if (element == null){
@@ -77,7 +85,7 @@ public class MyTagLitParser {
         }
 
         if (hideInput != null ){
-            userTag.hidden = Objects.equals(hideInput.attr("checked"), "checked");
+            userTag.hidden = hideInput.hasAttr("checked");
         }else{
             userTag.hidden = false;
         }

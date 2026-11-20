@@ -60,6 +60,13 @@
 
     <string name="app_name">EhViewer</string>
     <string name="download_group_like_author">Like or unlike author</string>
+    <string name="download_subscribe_author">Subscribe to author</string>
+    <string name="download_unsubscribe_author">Unsubscribe from author</string>
+    <string name="download_subscribe_success">Subscription successful</string>
+    <string name="download_unsubscribe_success">Unsubscribed successfully</string>
+    <string name="download_subscription_failed">Subscription change failed; check your connection or tag set</string>
+    <string name="download_subscription_busy">Updating subscriptions, please wait</string>
+    <string name="download_subscription_login">Please log in first</string>
 
     <string name="site_e" translatable="false">e-hentai</string>
     <string name="site_ex" translatable="false">exhentai</string>

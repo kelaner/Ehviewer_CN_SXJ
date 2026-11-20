@@ -7,6 +7,9 @@
     <TextView android:id="@+id/text1" android:layout_width="0dp" android:layout_height="wrap_content"
         android:layout_weight="1" android:paddingStart="16dp" android:paddingEnd="8dp"
         android:textAppearance="?attr/textAppearanceListItemSmall" />
+    <TextView android:id="@+id/download_group_subscription" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:paddingStart="4dp" android:paddingEnd="4dp" android:textAppearance="?attr/textAppearanceListItemSmall"
+        android:background="?attr/selectableItemBackgroundBorderless" android:clickable="true" android:focusable="true" />
     <TextView android:id="@+id/download_group_markers" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:paddingStart="4dp" android:paddingEnd="8dp" android:textAppearance="?attr/textAppearanceListItemSmall"
         android:background="?attr/selectableItemBackgroundBorderless" android:clickable="true" android:focusable="true"

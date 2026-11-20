@@ -1009,4 +1009,11 @@
     <string name="import_album_success">成功导入 %d 张图片</string>
 
     <string name="download_group_like_author">喜欢/取消喜欢作者</string>
+    <string name="download_subscribe_author">订阅作者</string>
+    <string name="download_unsubscribe_author">取消订阅作者</string>
+    <string name="download_subscribe_success">订阅成功</string>
+    <string name="download_unsubscribe_success">取消订阅成功</string>
+    <string name="download_subscription_failed">操作失败，请检查网络或标签集</string>
+    <string name="download_subscription_busy">正在更新订阅，请稍候</string>
+    <string name="download_subscription_login">请先登录</string>
 </resources>

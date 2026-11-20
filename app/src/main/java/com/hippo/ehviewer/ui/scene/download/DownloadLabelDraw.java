@@ -8,6 +8,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -24,6 +25,7 @@ import com.hippo.ehviewer.Settings;
 import com.hippo.ehviewer.client.EhClient;
 import com.hippo.ehviewer.client.EhRequest;
 import com.hippo.ehviewer.client.EhUrl;
+import com.hippo.ehviewer.client.data.userTag.TagPushParam;
 import com.hippo.ehviewer.client.data.userTag.UserTag;
 import com.hippo.ehviewer.client.data.userTag.UserTagList;
 import com.hippo.ehviewer.dao.DownloadInfo;
@@ -52,6 +54,8 @@ public class DownloadLabelDraw {
     private ItemTouchHelper touchHelper;
     private boolean movingLabel;
     private boolean refreshingSubscriptions;
+    private boolean changingSubscription;
+    private String changingArtist;
     private final List<Group> groups = new ArrayList<>();
     private static final String[] TYPES = {"custom", "artist", "character", "group"};
 
@@ -143,7 +147,7 @@ public class DownloadLabelDraw {
     }
 
     public void refreshSubscriptions() {
-        if (refreshingSubscriptions || !Settings.isLogin()) return;
+        if (refreshingSubscriptions || changingSubscription || !Settings.isLogin()) return;
         refreshingSubscriptions = true;
         fetchSubscriptions(EhUrl.getMyTag(), new ArrayList<>(), new HashSet<>(), null);
     }
@@ -182,6 +186,109 @@ public class DownloadLabelDraw {
                     @Override public void onCancel() { refreshingSubscriptions = false; }
                 });
         EhApplication.getEhClient(context).execute(request);
+    }
+
+    private void toggleSubscription(Group group) {
+        if (refreshingSubscriptions || changingSubscription) {
+            Toast.makeText(context, R.string.download_subscription_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!Settings.isLogin()) {
+            Toast.makeText(context, R.string.download_subscription_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        changingSubscription = true;
+        changingArtist = group.artist.trim().toLowerCase(java.util.Locale.ROOT);
+        findSubscription(group, EhUrl.getMyTag(), new ArrayList<>(), null);
+    }
+
+    private void findSubscription(Group group, String url, List<String> remaining, @Nullable String expectedSet) {
+        EhRequest request = new EhRequest().setMethod(EhClient.METHOD_GET_WATCHED).setArgs(url)
+                .setCallback(new EhClient.Callback<UserTagList>() {
+                    @Override public void onSuccess(UserTagList result) {
+                        if (result == null || result.userTags == null || result.tagSetIds.isEmpty()
+                                || result.currentTagSetId == null
+                                || (expectedSet != null && !expectedSet.equals(result.currentTagSetId))) {
+                            finishSubscription(false, group.subscribed);
+                            return;
+                        }
+                        if (expectedSet == null) {
+                            remaining.addAll(result.tagSetIds);
+                            remaining.remove(result.currentTagSetId);
+                        }
+                        for (UserTag tag : result.userTags) {
+                            if (tag.watched && tag.tagName != null && tag.tagName.trim().equalsIgnoreCase(group.key)) {
+                                if (group.subscribed) deleteSubscription(group, url, remaining, result.currentTagSetId, tag);
+                                else finishSubscription(true, false);
+                                return;
+                            }
+                        }
+                        if (!remaining.isEmpty()) {
+                            String next = remaining.remove(0);
+                            findSubscription(group, EhUrl.getMyTag() + "?tagset=" + next, remaining, next);
+                        } else if (group.subscribed) {
+                            finishSubscription(true, true);
+                        } else {
+                            addSubscription(group);
+                        }
+                    }
+                    @Override public void onFailure(Exception e) { finishSubscription(false, group.subscribed); }
+                    @Override public void onCancel() { finishSubscription(false, group.subscribed); }
+                });
+        EhApplication.getEhClient(context).execute(request);
+    }
+
+    private void addSubscription(Group group) {
+        TagPushParam param = new TagPushParam();
+        param.tagNameNew = group.key;
+        param.tagWatchNew = "on";
+        EhRequest request = new EhRequest().setMethod(EhClient.METHOD_ADD_TAG).setArgs(EhUrl.getMyTag(), param)
+                .setCallback(new EhClient.Callback<UserTagList>() {
+                    @Override public void onSuccess(UserTagList result) { finishSubscription(result != null, false); }
+                    @Override public void onFailure(Exception e) { finishSubscription(false, false); }
+                    @Override public void onCancel() { finishSubscription(false, false); }
+                });
+        EhApplication.getEhClient(context).execute(request);
+    }
+
+    private void deleteSubscription(Group group, String url, List<String> remaining, String setId, UserTag tag) {
+        EhRequest request = new EhRequest().setMethod(EhClient.METHOD_DELETE_WATCHED).setArgs(url, tag)
+                .setCallback(new EhClient.Callback<UserTagList>() {
+                    @Override public void onSuccess(UserTagList result) {
+                        if (result == null || result.userTags == null || !setId.equals(result.currentTagSetId)) {
+                            finishSubscription(false, true);
+                            return;
+                        }
+                        for (UserTag item : result.userTags) {
+                            if (item.watched && item.tagName != null && item.tagName.trim().equalsIgnoreCase(group.key)) {
+                                finishSubscription(false, true);
+                                return;
+                            }
+                        }
+                        if (remaining.isEmpty()) finishSubscription(true, true);
+                        else {
+                            String next = remaining.remove(0);
+                            findSubscription(group, EhUrl.getMyTag() + "?tagset=" + next, remaining, next);
+                        }
+                    }
+                    @Override public void onFailure(Exception e) { finishSubscription(false, true); }
+                    @Override public void onCancel() { finishSubscription(false, true); }
+                });
+        EhApplication.getEhClient(context).execute(request);
+    }
+
+    private void finishSubscription(boolean success, boolean wasSubscribed) {
+        changingSubscription = false;
+        if (success) {
+            android.content.SharedPreferences prefs = context.getSharedPreferences("download_watched_artists", Context.MODE_PRIVATE);
+            Set<String> artists = new HashSet<>(prefs.getStringSet("artists", Collections.emptySet()));
+            if (wasSubscribed) artists.remove(changingArtist); else artists.add(changingArtist);
+            prefs.edit().putStringSet("artists", artists).apply();
+            updateDownloadLabels();
+        }
+        Toast.makeText(context, success ? (wasSubscribed ? R.string.download_unsubscribe_success : R.string.download_subscribe_success)
+                : R.string.download_subscription_failed, Toast.LENGTH_SHORT).show();
+        refreshSubscriptions();
     }
 
     @SuppressLint("NotifyDataSetChanged")
@@ -307,6 +414,7 @@ public class DownloadLabelDraw {
         final View handle;
         final View menu;
         final TextView markers;
+        final TextView subscription;
         GroupHolder(View view) {
             super(view);
             name = view.findViewById(R.id.text1);
@@ -314,6 +422,7 @@ public class DownloadLabelDraw {
             handle = view.findViewById(R.id.drag_handler);
             menu = view.findViewById(R.id.download_label_menu);
             markers = view.findViewById(R.id.download_group_markers);
+            subscription = view.findViewById(R.id.download_group_subscription);
         }
     }
 
@@ -327,7 +436,12 @@ public class DownloadLabelDraw {
             holder.name.setText(group.title);
             boolean liked = group.artist != null
                     && "true".equals(DownloadTags.getConfig("liked_artist_" + group.artist.toLowerCase(java.util.Locale.ROOT), "false"));
-            holder.markers.setText((group.subscribed ? "⭐ " : "") + (liked ? "❤️" : "🤍"));
+            holder.subscription.setVisibility(group.artist != null ? View.VISIBLE : View.GONE);
+            holder.subscription.setText(group.subscribed ? "⭐" : "🔘");
+            holder.subscription.setContentDescription(context.getString(group.subscribed
+                    ? R.string.download_unsubscribe_author : R.string.download_subscribe_author));
+            holder.subscription.setOnClickListener(v -> toggleSubscription(group));
+            holder.markers.setText(liked ? "❤️" : "🤍");
             holder.markers.setVisibility(group.artist != null ? View.VISIBLE : View.GONE);
             holder.markers.setOnClickListener(v -> {
                 if (group.artist == null) return;
